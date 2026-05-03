@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2
 
@@ -16,6 +18,7 @@ class TopFrameRecord:
     top_frame: int | None
     top_confidence: float | None
     bucket: str
+    top_bbox: list[float] | None = None
 
 
 @dataclass
@@ -26,6 +29,178 @@ class PreviewExtractionStats:
     extracted: int
     skipped: int
     failed: int
+    classified: int = 0
+    classification_failed: int = 0
+
+
+@dataclass
+class SpeciesClassification:
+    """Top SpeciesNet classification result for one preview image."""
+
+    label: str
+    score: float
+    raw_class: str
+
+
+def make_unique_destination(dest: Path) -> Path:
+    """Generate a unique destination path when a file already exists.
+
+    Returns:
+        Path: A path that does not currently exist.
+    """
+    if not dest.exists():
+        return dest
+
+    stem = dest.stem
+    suffix = dest.suffix
+    index = 1
+    while True:
+        candidate = dest.with_name(f"{stem}_{index}{suffix}")
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def sanitize_label_for_filename(label: str) -> str:
+    """Create a filesystem-safe, compact label segment for filenames.
+
+    Returns:
+        str: Normalized label suitable for use in filenames.
+    """
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", label.strip().lower())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if not cleaned:
+        return "unknown"
+    return cleaned[:48]
+
+
+def parse_speciesnet_top_class(classifications: Any) -> SpeciesClassification | None:
+    """Extract top class label and score from SpeciesNet classification payload.
+
+    Returns:
+        SpeciesClassification | None: Top class details, or None if unavailable.
+    """
+    if not isinstance(classifications, dict):
+        return None
+
+    classes = classifications.get("classes")
+    scores = classifications.get("scores")
+    if not isinstance(classes, list) or not isinstance(scores, list):
+        return None
+    if not classes or not scores or len(classes) != len(scores):
+        return None
+
+    try:
+        top_index = max(range(len(scores)), key=lambda idx: float(scores[idx]))
+        raw_class = str(classes[top_index])
+        score = float(scores[top_index])
+    except (TypeError, ValueError):
+        return None
+
+    label = raw_class.split(";")[-1].strip() or "unknown"
+    return SpeciesClassification(label=label, score=score, raw_class=raw_class)
+
+
+def create_species_crop(
+    image_path: Path,
+    bbox: list[float] | None,
+    output_dir: Path,
+    padding: float,
+) -> Path | None:
+    """Create and save a bbox crop for species classification.
+
+    Args:
+        image_path: Source preview image path.
+        bbox: Normalized bbox values [x, y, width, height].
+        output_dir: Destination directory for crop images.
+        padding: Extra normalized padding around bbox.
+
+    Returns:
+        Path | None: Saved crop path, or None when crop generation fails.
+    """
+    if bbox is None or len(bbox) != 4:
+        return None
+
+    frame = cv2.imread(str(image_path))
+    if frame is None:
+        return None
+
+    height, width = frame.shape[:2]
+    try:
+        x, y, w, h = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+
+    x1 = max(0.0, x - padding * w)
+    y1 = max(0.0, y - padding * h)
+    x2 = min(1.0, x + w + padding * w)
+    y2 = min(1.0, y + h + padding * h)
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    px1 = int(round(x1 * width))
+    py1 = int(round(y1 * height))
+    px2 = int(round(x2 * width))
+    py2 = int(round(y2 * height))
+    if px2 <= px1 or py2 <= py1:
+        return None
+
+    crop = frame[py1:py2, px1:px2]
+    if crop.size == 0:
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    crop_path = output_dir / f"{image_path.stem}_crop{image_path.suffix}"
+    crop_path = make_unique_destination(crop_path)
+    if not cv2.imwrite(str(crop_path), crop):
+        return None
+
+    return crop_path
+
+
+def classify_preview_images_with_speciesnet(
+    image_paths: list[Path],
+    model_name: str | None,
+    geofence: bool,
+) -> tuple[dict[Path, SpeciesClassification], int]:
+    """Classify extracted preview images with SpeciesNet.
+
+    Returns:
+        tuple[dict[Path, SpeciesClassification], int]: Successful classifications and failures.
+    """
+    if not image_paths:
+        return {}, 0
+
+    from speciesnet import DEFAULT_MODEL, SpeciesNet
+
+    resolved_paths = [path.resolve() for path in image_paths]
+    model_id = model_name or DEFAULT_MODEL
+    classifier = SpeciesNet(model_id, components="classifier", geofence=geofence)
+    result = classifier.classify(filepaths=[str(path) for path in resolved_paths], progress_bars=False)
+
+    predictions = result.get("predictions", []) if isinstance(result, dict) else []
+    by_path: dict[Path, SpeciesClassification] = {}
+    failures = 0
+
+    for prediction in predictions:
+        if not isinstance(prediction, dict):
+            failures += 1
+            continue
+
+        filepath = prediction.get("filepath")
+        if filepath is None:
+            failures += 1
+            continue
+
+        top_class = parse_speciesnet_top_class(prediction.get("classifications"))
+        if top_class is None:
+            failures += 1
+            continue
+
+        by_path[Path(str(filepath)).resolve()] = top_class
+
+    failures += max(0, len(resolved_paths) - len(by_path))
+    return by_path, failures
 
 
 def build_output_path(output_dir: Path, record: TopFrameRecord) -> Path:
@@ -75,11 +250,58 @@ def extract_frame(video_path: Path, frame_number: int, output_image: Path) -> bo
     return bool(cv2.imwrite(str(output_image), frame))
 
 
+def process_record_for_preview(
+    record: TopFrameRecord,
+    input_dir: Path,
+    output_dir: Path,
+    speciesnet_use_crops: bool,
+    species_crop_output_dir: Path | None,
+    species_crop_padding: float,
+) -> tuple[str, Path | None, Path | None, str]:
+    """Extract preview image and optional species crop for one record.
+
+    Returns:
+        tuple[str, Path | None, Path | None, str]: status, preview path, classification target, log message.
+    """
+    if not record.relative_path or record.top_frame is None or int(record.top_frame) < 0:
+        return "skipped", None, None, f"Skipped {record.relative_path}: no valid top_frame"
+
+    source_video = input_dir / record.relative_path
+    if not source_video.exists():
+        return "failed", None, None, f"Failed {record.relative_path}: video not found"
+
+    output_image = build_output_path(output_dir, record)
+    if not extract_frame(source_video, int(record.top_frame), output_image):
+        return "failed", None, None, f"Failed {record.relative_path}: frame extraction error"
+
+    classification_target = output_image.resolve()
+    if speciesnet_use_crops and species_crop_output_dir is not None:
+        crop_path = create_species_crop(
+            image_path=output_image,
+            bbox=record.top_bbox,
+            output_dir=species_crop_output_dir,
+            padding=species_crop_padding,
+        )
+        if crop_path is not None:
+            classification_target = crop_path.resolve()
+            message = f"Wrote {output_image} and species crop {crop_path}"
+            return "extracted", output_image, classification_target, message
+
+    return "extracted", output_image, classification_target, f"Wrote {output_image}"
+
+
 def extract_top_frames(
     records: list[TopFrameRecord],
     input_dir: Path,
     output_dir: Path,
     include_uninteresting: bool,
+    classify_with_speciesnet: bool = False,
+    speciesnet_model: str | None = None,
+    speciesnet_geofence: bool = False,
+    include_label_in_filename: bool = True,
+    speciesnet_use_crops: bool = True,
+    species_crop_output_dir: Path | None = None,
+    species_crop_padding: float = 0.15,
 ) -> PreviewExtractionStats:
     """Extract top-frame preview images for selected records.
 
@@ -88,6 +310,13 @@ def extract_top_frames(
         input_dir: Root directory where source videos exist.
         output_dir: Root directory for generated preview images.
         include_uninteresting: Include uninteresting bucket records when true.
+        classify_with_speciesnet: Classify extracted images with SpeciesNet.
+        speciesnet_model: SpeciesNet model identifier, or None for default.
+        speciesnet_geofence: Apply SpeciesNet geofencing if supported.
+        include_label_in_filename: Rename previews to include top class and score.
+        speciesnet_use_crops: Use bbox crops for species classification when possible.
+        species_crop_output_dir: Destination folder for saved crop images.
+        species_crop_padding: Extra normalized padding around bbox.
 
     Returns:
         PreviewExtractionStats: Aggregated extraction counters.
@@ -95,6 +324,10 @@ def extract_top_frames(
     extracted = 0
     skipped = 0
     failed = 0
+    classified = 0
+    classification_failed = 0
+    extracted_paths: list[Path] = []
+    classification_targets: dict[Path, Path] = {}
 
     filtered_records = [
         record
@@ -104,29 +337,64 @@ def extract_top_frames(
 
     total = len(filtered_records)
     for index, record in enumerate(filtered_records, start=1):
-        if not record.relative_path or record.top_frame is None or int(record.top_frame) < 0:
+        status, output_image, classification_target, message = process_record_for_preview(
+            record=record,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            speciesnet_use_crops=speciesnet_use_crops,
+            species_crop_output_dir=species_crop_output_dir,
+            species_crop_padding=species_crop_padding,
+        )
+
+        if status == "skipped":
             skipped += 1
-            print(f"[{index}/{total}] Skipped {record.relative_path}: no valid top_frame")
+            print(f"[{index}/{total}] {message}")
             continue
-
-        source_video = input_dir / record.relative_path
-        if not source_video.exists():
+        if status == "failed":
             failed += 1
-            print(f"[{index}/{total}] Failed {record.relative_path}: video not found")
-            continue
-
-        output_image = build_output_path(output_dir, record)
-        if not extract_frame(source_video, int(record.top_frame), output_image):
-            failed += 1
-            print(f"[{index}/{total}] Failed {record.relative_path}: frame extraction error")
+            print(f"[{index}/{total}] {message}")
             continue
 
         extracted += 1
-        print(f"[{index}/{total}] Wrote {output_image}")
+        assert output_image is not None
+        assert classification_target is not None
+        extracted_paths.append(output_image)
+        classification_targets[output_image.resolve()] = classification_target
+        print(f"[{index}/{total}] {message}")
+
+    if classify_with_speciesnet and extracted_paths:
+        print("Running SpeciesNet classification on extracted previews")
+        try:
+            classifications, classification_failed = classify_preview_images_with_speciesnet(
+                image_paths=list(classification_targets.values()),
+                model_name=speciesnet_model,
+                geofence=speciesnet_geofence,
+            )
+            classified = len(classifications)
+        except Exception as exc:
+            classifications = {}
+            classification_failed = len(extracted_paths)
+            print(f"SpeciesNet classification failed: {exc}")
+
+        if include_label_in_filename:
+            for output_image in extracted_paths:
+                classification_target = classification_targets.get(output_image.resolve(), output_image.resolve())
+                classification = classifications.get(classification_target)
+                if classification is None:
+                    continue
+                safe_label = sanitize_label_for_filename(classification.label)
+                score_label = f"{classification.score:.3f}"
+                renamed = output_image.with_name(
+                    f"{output_image.stem}_species-{safe_label}_sp{score_label}{output_image.suffix}"
+                )
+                renamed = make_unique_destination(renamed)
+                output_image.rename(renamed)
 
     return PreviewExtractionStats(
         total_candidates=total,
         extracted=extracted,
         skipped=skipped,
         failed=failed,
+        classified=classified,
+        classification_failed=classification_failed,
     )

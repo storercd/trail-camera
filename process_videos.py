@@ -40,6 +40,7 @@ class VideoDecision:
     top_confidence: float | None
     top_category: str | None
     top_frame: int | None
+    top_bbox: list[float] | None
     num_detections: int
     failure: str | None
 
@@ -62,6 +63,13 @@ class AppConfig:
     generate_top_frame_previews: bool
     preview_output_dir: str
     preview_include_uninteresting: bool
+    classify_previews_with_speciesnet: bool
+    speciesnet_model: str
+    speciesnet_geofence: bool
+    speciesnet_label_in_filename: bool
+    speciesnet_use_crops: bool
+    species_crop_output_dir: str
+    species_crop_padding: float
 
 
 @dataclass
@@ -139,6 +147,13 @@ def load_config(config_path: Path) -> AppConfig:
         generate_top_frame_previews = bool(raw_config.get("generate_top_frame_previews", True))
         preview_output_dir = str(raw_config.get("preview_output_dir", "preview_frames"))
         preview_include_uninteresting = bool(raw_config.get("preview_include_uninteresting", False))
+        classify_previews_with_speciesnet = bool(raw_config.get("classify_previews_with_speciesnet", True))
+        speciesnet_model = str(raw_config.get("speciesnet_model", ""))
+        speciesnet_geofence = bool(raw_config.get("speciesnet_geofence", False))
+        speciesnet_label_in_filename = bool(raw_config.get("speciesnet_label_in_filename", True))
+        speciesnet_use_crops = bool(raw_config.get("speciesnet_use_crops", True))
+        species_crop_output_dir = str(raw_config.get("species_crop_output_dir", "preview_species_crops"))
+        species_crop_padding = float(raw_config.get("species_crop_padding", 0.15))
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc
 
@@ -148,6 +163,8 @@ def load_config(config_path: Path) -> AppConfig:
         raise SystemExit("interesting_threshold must be between 0.0 and 1.0")
     if run_folder_mode not in {"none", "timestamped"}:
         raise SystemExit("run_folder_mode must be either 'none' or 'timestamped'")
+    if not 0.0 <= species_crop_padding <= 1.0:
+        raise SystemExit("species_crop_padding must be between 0.0 and 1.0")
 
     return AppConfig(
         input_dir=input_dir,
@@ -164,6 +181,13 @@ def load_config(config_path: Path) -> AppConfig:
         generate_top_frame_previews=generate_top_frame_previews,
         preview_output_dir=preview_output_dir,
         preview_include_uninteresting=preview_include_uninteresting,
+        classify_previews_with_speciesnet=classify_previews_with_speciesnet,
+        speciesnet_model=speciesnet_model,
+        speciesnet_geofence=speciesnet_geofence,
+        speciesnet_label_in_filename=speciesnet_label_in_filename,
+        speciesnet_use_crops=speciesnet_use_crops,
+        species_crop_output_dir=species_crop_output_dir,
+        species_crop_padding=species_crop_padding,
     )
 
 
@@ -255,6 +279,7 @@ def analyze_video_result(
             top_confidence=None,
             top_category=None,
             top_frame=None,
+            top_bbox=None,
             num_detections=0,
             failure=str(image_entry["failure"]),
         )
@@ -278,9 +303,18 @@ def analyze_video_result(
             top_confidence=None,
             top_category=None,
             top_frame=None,
+            top_bbox=None,
             num_detections=0,
             failure=None,
         )
+
+    top_bbox = best.get("bbox")
+    normalized_bbox = None
+    if isinstance(top_bbox, list) and len(top_bbox) == 4:
+        try:
+            normalized_bbox = [float(value) for value in top_bbox]
+        except (TypeError, ValueError):
+            normalized_bbox = None
 
     return VideoDecision(
         relative_path=rel_path,
@@ -288,6 +322,7 @@ def analyze_video_result(
         top_confidence=float(best.get("conf", 0.0)),
         top_category=str(best.get("category", "")),
         top_frame=int(best.get("frame_number", -1)),
+        top_bbox=normalized_bbox,
         num_detections=interesting_count,
         failure=None,
     )
@@ -367,6 +402,13 @@ def write_summary(
         "generate_top_frame_previews": config.generate_top_frame_previews,
         "preview_output_dir": str(preview_output_dir),
         "preview_include_uninteresting": config.preview_include_uninteresting,
+        "classify_previews_with_speciesnet": config.classify_previews_with_speciesnet,
+        "speciesnet_model": config.speciesnet_model,
+        "speciesnet_geofence": config.speciesnet_geofence,
+        "speciesnet_label_in_filename": config.speciesnet_label_in_filename,
+        "speciesnet_use_crops": config.speciesnet_use_crops,
+        "species_crop_output_dir": str(resolve_preview_output_dir(config.species_crop_output_dir, run_output_dir)),
+        "species_crop_padding": config.species_crop_padding,
         "videos": [decision.__dict__ for decision in decisions],
         "counts": {
             "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
@@ -381,6 +423,8 @@ def write_summary(
             "extracted": preview_stats.extracted,
             "skipped": preview_stats.skipped,
             "failed": preview_stats.failed,
+            "classified": preview_stats.classified,
+            "classification_failed": preview_stats.classification_failed,
         }
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
@@ -543,6 +587,13 @@ def extract_preview_frames_for_decisions(
     input_dir: Path,
     preview_output_dir: Path,
     include_uninteresting: bool,
+    classify_with_speciesnet: bool,
+    speciesnet_model: str,
+    speciesnet_geofence: bool,
+    speciesnet_label_in_filename: bool,
+    speciesnet_use_crops: bool,
+    species_crop_output_dir: Path,
+    species_crop_padding: float,
 ) -> PreviewExtractionStats:
     """Extract preview images for selected decisions.
 
@@ -551,6 +602,13 @@ def extract_preview_frames_for_decisions(
         input_dir: Root folder containing source videos.
         preview_output_dir: Destination folder for preview images.
         include_uninteresting: Include uninteresting videos when true.
+        classify_with_speciesnet: Run species classification on preview images.
+        speciesnet_model: SpeciesNet model identifier, empty for default.
+        speciesnet_geofence: Use geofence filtering in SpeciesNet.
+        speciesnet_label_in_filename: Append species label and score to filenames.
+        speciesnet_use_crops: Use MegaDetector bboxes to classify cropped images.
+        species_crop_output_dir: Destination folder for saved classification crops.
+        species_crop_padding: Extra context around bbox as normalized padding.
 
     Returns:
         PreviewExtractionStats: Frame extraction summary counters.
@@ -561,6 +619,7 @@ def extract_preview_frames_for_decisions(
             top_frame=decision.top_frame,
             top_confidence=decision.top_confidence,
             bucket=decision.bucket,
+            top_bbox=decision.top_bbox,
         )
         for decision in decisions
     ]
@@ -569,6 +628,13 @@ def extract_preview_frames_for_decisions(
         input_dir=input_dir,
         output_dir=preview_output_dir,
         include_uninteresting=include_uninteresting,
+        classify_with_speciesnet=classify_with_speciesnet,
+        speciesnet_model=speciesnet_model or None,
+        speciesnet_geofence=speciesnet_geofence,
+        include_label_in_filename=speciesnet_label_in_filename,
+        speciesnet_use_crops=speciesnet_use_crops,
+        species_crop_output_dir=species_crop_output_dir,
+        species_crop_padding=species_crop_padding,
     )
 
 
@@ -617,20 +683,32 @@ def main() -> int:
 
     preview_stats: PreviewExtractionStats | None = None
     preview_output_dir = resolve_preview_output_dir(config.preview_output_dir, paths.output_dir)
+    species_crop_output_dir = resolve_preview_output_dir(config.species_crop_output_dir, paths.output_dir)
     if config.generate_top_frame_previews:
         print(f"Extracting top-frame previews to {preview_output_dir}")
+        if config.classify_previews_with_speciesnet and config.speciesnet_use_crops:
+            print(f"Species classification crops will be saved to {species_crop_output_dir}")
         preview_stats = extract_preview_frames_for_decisions(
             decisions=decisions,
             input_dir=paths.input_dir,
             preview_output_dir=preview_output_dir,
             include_uninteresting=config.preview_include_uninteresting,
+            classify_with_speciesnet=config.classify_previews_with_speciesnet,
+            speciesnet_model=config.speciesnet_model,
+            speciesnet_geofence=config.speciesnet_geofence,
+            speciesnet_label_in_filename=config.speciesnet_label_in_filename,
+            speciesnet_use_crops=config.speciesnet_use_crops,
+            species_crop_output_dir=species_crop_output_dir,
+            species_crop_padding=config.species_crop_padding,
         )
         print(
             "Preview extraction complete. "
             f"candidates={preview_stats.total_candidates}, "
             f"extracted={preview_stats.extracted}, "
             f"skipped={preview_stats.skipped}, "
-            f"failed={preview_stats.failed}"
+            f"failed={preview_stats.failed}, "
+            f"classified={preview_stats.classified}, "
+            f"classification_failed={preview_stats.classification_failed}"
         )
     else:
         print("Preview extraction disabled by config")
