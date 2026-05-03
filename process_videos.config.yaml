@@ -1,0 +1,29 @@
+# Folder containing videos
+input_dir: input
+
+# Folder to receive sorted videos
+output_dir: output
+
+# MegaDetector model identifier or .pt path (default: MDV5A)
+model: MDV5A
+
+# Process every Nth frame (default: 5)
+frame_sample: 5
+
+# Detection confidence threshold for classifying a video as interesting (default: 0.7)
+interesting_threshold: 0.7
+
+# Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
+interesting_categories:
+  - "1"
+  - "2"
+  - "3"
+
+# Move files instead of copying them into output buckets
+move_files: false
+
+# Recursively scan input directory for videos
+recursive: false
+
+# Enable verbose MegaDetector output while processing
+detector_verbose: false

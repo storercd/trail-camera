@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from megadetector.detection.process_video import ProcessVideoOptions, process_videos
 
 VIDEO_EXTENSIONS = {
@@ -24,6 +25,7 @@ VIDEO_EXTENSIONS = {
 }
 
 DEFAULT_INTERESTING_CATEGORIES = {"1", "2", "3"}
+DEFAULT_CONFIG_PATH = "process_videos.config.yaml"
 
 
 @dataclass
@@ -39,6 +41,21 @@ class VideoDecision:
     failure: str | None
 
 
+@dataclass
+class AppConfig:
+    """Runtime settings loaded from the YAML config file."""
+
+    input_dir: str
+    output_dir: str
+    model: str
+    frame_sample: int
+    interesting_threshold: float
+    interesting_categories: list[str]
+    move_files: bool
+    recursive: bool
+    detector_verbose: bool
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the video processing workflow.
 
@@ -47,48 +64,73 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Run MegaDetector on videos in an input folder and sort originals into "
-            "output/interesting, output/uninteresting, and output/failed."
+            "Run MegaDetector on videos and sort originals using values "
+            "loaded from a YAML config file."
         )
     )
-    parser.add_argument("--input-dir", default="input", help="Folder containing videos")
-    parser.add_argument("--output-dir", default="output", help="Folder to receive sorted videos")
     parser.add_argument(
-        "--model",
-        default="MDV5A",
-        help="MegaDetector model identifier or .pt path (default: MDV5A)",
-    )
-    parser.add_argument(
-        "--frame-sample",
-        type=int,
-        default=5,
-        help="Process every Nth frame (default: 5)",
-    )
-    parser.add_argument(
-        "--interesting-threshold",
-        type=float,
-        default=0.7,
-        help="Detection confidence threshold for classifying a video as interesting (default: 0.7)",
-    )
-    parser.add_argument(
-        "--interesting-categories",
-        default="1,2,3",
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
         help=(
-            "Comma-separated category IDs considered interesting. "
-            "MD default labels are 1=animal, 2=person, 3=vehicle."
+            "Path to YAML configuration file "
+            f"(default: {DEFAULT_CONFIG_PATH})"
         ),
     )
-    parser.add_argument(
-        "--move",
-        action="store_true",
-        help="Move files instead of copying them into output buckets",
-    )
-    parser.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Recursively scan input directory for videos",
-    )
     return parser.parse_args()
+
+
+def load_config(config_path: Path) -> AppConfig:
+    """Load and validate application settings from a YAML file.
+
+    Args:
+        config_path: Path to YAML configuration.
+
+    Returns:
+        AppConfig: Parsed and validated configuration values.
+
+    Raises:
+        SystemExit: If the config file is missing or has invalid values.
+    """
+    if not config_path.exists():
+        raise SystemExit(f"Config file does not exist: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as handle:
+        loaded = yaml.safe_load(handle)
+
+    raw_config = loaded if isinstance(loaded, dict) else {}
+
+    try:
+        input_dir = str(raw_config["input_dir"])
+        output_dir = str(raw_config["output_dir"])
+        model = str(raw_config.get("model", "MDV5A"))
+        frame_sample = int(raw_config.get("frame_sample", 5))
+        interesting_threshold = float(raw_config.get("interesting_threshold", 0.7))
+        categories_raw = raw_config.get("interesting_categories", ["1", "2", "3"])
+        if not isinstance(categories_raw, list):
+            raise SystemExit("interesting_categories must be a YAML list")
+        categories = [str(c).strip() for c in categories_raw if str(c).strip()]
+        move_files = bool(raw_config.get("move_files", False))
+        recursive = bool(raw_config.get("recursive", False))
+        detector_verbose = bool(raw_config.get("detector_verbose", False))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc
+
+    if frame_sample <= 0:
+        raise SystemExit("frame_sample must be greater than 0")
+    if not 0.0 <= interesting_threshold <= 1.0:
+        raise SystemExit("interesting_threshold must be between 0.0 and 1.0")
+
+    return AppConfig(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        model=model,
+        frame_sample=frame_sample,
+        interesting_threshold=interesting_threshold,
+        interesting_categories=categories,
+        move_files=move_files,
+        recursive=recursive,
+        detector_verbose=detector_verbose,
+    )
 
 
 def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
@@ -223,6 +265,7 @@ def run_detector(
     model: str,
     frame_sample: int,
     recursive: bool,
+    verbose: bool,
 ) -> None:
     """Run MegaDetector on the input directory and write JSON results.
 
@@ -232,6 +275,7 @@ def run_detector(
         model: MegaDetector model name or file path.
         frame_sample: Process every Nth frame.
         recursive: Whether to scan input recursively.
+        verbose: Whether to enable MegaDetector verbose output.
     """
     print(
         "Starting MegaDetector run: "
@@ -243,29 +287,37 @@ def run_detector(
     options.model_file = model
     options.frame_sample = frame_sample
     options.recursive = recursive
-    options.verbose = False
+    options.verbose = verbose
     process_videos(options)
     print(f"MegaDetector run complete. Results written to {results_file}")
 
 
-def write_summary(summary_path: Path, decisions: list[VideoDecision], args: argparse.Namespace) -> None:
+def write_summary(
+    summary_path: Path,
+    decisions: list[VideoDecision],
+    config: AppConfig,
+    config_path: Path,
+) -> None:
     """Write a JSON summary file for the run.
 
     Args:
         summary_path: Output path for the summary JSON.
         decisions: Per-video decisions generated from detector output.
-        args: Parsed command-line arguments used for the run.
+        config: Runtime configuration used for this run.
+        config_path: Path to the config file used for this run.
     """
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "input_dir": str(Path(args.input_dir).resolve()),
-        "output_dir": str(Path(args.output_dir).resolve()),
-        "model": args.model,
-        "frame_sample": args.frame_sample,
-        "interesting_threshold": args.interesting_threshold,
-        "interesting_categories": sorted(
-            c.strip() for c in args.interesting_categories.split(",") if c.strip()
-        ),
+        "config_file": str(config_path.resolve()),
+        "input_dir": str(Path(config.input_dir).resolve()),
+        "output_dir": str(Path(config.output_dir).resolve()),
+        "model": config.model,
+        "frame_sample": config.frame_sample,
+        "interesting_threshold": config.interesting_threshold,
+        "interesting_categories": sorted(config.interesting_categories),
+        "move_files": config.move_files,
+        "recursive": config.recursive,
+        "detector_verbose": config.detector_verbose,
         "videos": [decision.__dict__ for decision in decisions],
         "counts": {
             "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
@@ -288,21 +340,24 @@ def main() -> int:
         SystemExit: If the input directory is invalid or no videos are found.
     """
     args = parse_args()
+    config_path = Path(args.config).resolve()
+    config = load_config(config_path)
 
-    input_dir = Path(args.input_dir).resolve()
-    output_dir = Path(args.output_dir).resolve()
+    input_dir = Path(config.input_dir).resolve()
+    output_dir = Path(config.output_dir).resolve()
+    print(f"Using config file: {config_path}")
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
     if not input_dir.exists() or not input_dir.is_dir():
         raise SystemExit(f"Input directory does not exist: {input_dir}")
 
-    videos = find_videos(input_dir, args.recursive)
+    videos = find_videos(input_dir, config.recursive)
     print(f"Found {len(videos)} video(s) to process")
     if not videos:
         raise SystemExit(f"No videos found in {input_dir}")
 
     categories = {
-        c.strip() for c in args.interesting_categories.split(",") if c.strip()
+        c.strip() for c in config.interesting_categories if c.strip()
     } or DEFAULT_INTERESTING_CATEGORIES
 
     metadata_dir = output_dir / "metadata"
@@ -312,9 +367,10 @@ def main() -> int:
     run_detector(
         input_dir=input_dir,
         results_file=md_results_path,
-        model=args.model,
-        frame_sample=args.frame_sample,
-        recursive=args.recursive,
+        model=config.model,
+        frame_sample=config.frame_sample,
+        recursive=config.recursive,
+        verbose=config.detector_verbose,
     )
 
     print("Loading MegaDetector results for classification")
@@ -328,13 +384,13 @@ def main() -> int:
         decision = analyze_video_result(
             image_entry=image_entry,
             interesting_categories=categories,
-            threshold=args.interesting_threshold,
+            threshold=config.interesting_threshold,
         )
         source = input_dir / decision.relative_path
         if source.exists():
             destination = output_dir / decision.bucket / decision.relative_path
-            copy_or_move(source, destination, move=args.move)
-            action = "Moved" if args.move else "Copied"
+            copy_or_move(source, destination, move=config.move_files)
+            action = "Moved" if config.move_files else "Copied"
             print(
                 f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}"
             )
@@ -344,7 +400,12 @@ def main() -> int:
             )
         decisions.append(decision)
 
-    write_summary(summary_path=summary_path, decisions=decisions, args=args)
+    write_summary(
+        summary_path=summary_path,
+        decisions=decisions,
+        config=config,
+        config_path=config_path,
+    )
     print(f"Wrote summary metadata to {summary_path}")
 
     counts = {
