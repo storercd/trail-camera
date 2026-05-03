@@ -16,6 +16,7 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - interesting_categories: Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
 - move_files: Move files instead of copying them into output buckets
 - save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
+- clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
 - run_folder_mode: Output mode; use none for persistent output or timestamped for output/runs/<run_id>
 - recursive: Recursively scan input directory for videos
 - detector_verbose: Enable verbose MegaDetector output while processing
@@ -48,6 +49,10 @@ Run with a custom config file:
 
 Top-frame preview extraction runs automatically as part of this command when
 generate_top_frame_previews is true in the config.
+
+When clip_interesting_videos is true, each interesting output video is trimmed to
+the first and last interesting detection frame, expanded by frame_sample on both
+sides (bounded by video start/end).
 
 When SpeciesNet preview classification is enabled, preview image filenames include
 the top predicted species label and confidence score.

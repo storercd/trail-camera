@@ -25,6 +25,9 @@ move_files: false
 # Save uninteresting videos in output/uninteresting; set false to keep only interesting videos
 save_uninteresting_files: false
 
+# Clip interesting videos to [first,last] interesting frames, buffered by frame_sample
+clip_interesting_videos: true
+
 # Output mode: none (single persistent output) or timestamped (output/runs/<run_id>)
 run_folder_mode: timestamped
 
