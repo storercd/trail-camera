@@ -55,6 +55,7 @@ class AppConfig:
     interesting_threshold: float
     interesting_categories: list[str]
     move_files: bool
+    save_uninteresting_files: bool
     run_folder_mode: str
     recursive: bool
     detector_verbose: bool
@@ -131,6 +132,7 @@ def load_config(config_path: Path) -> AppConfig:
             raise SystemExit("interesting_categories must be a YAML list")
         categories = [str(c).strip() for c in categories_raw if str(c).strip()]
         move_files = bool(raw_config.get("move_files", False))
+        save_uninteresting_files = bool(raw_config.get("save_uninteresting_files", True))
         run_folder_mode = str(raw_config.get("run_folder_mode", "none")).strip().lower()
         recursive = bool(raw_config.get("recursive", False))
         detector_verbose = bool(raw_config.get("detector_verbose", False))
@@ -155,6 +157,7 @@ def load_config(config_path: Path) -> AppConfig:
         interesting_threshold=interesting_threshold,
         interesting_categories=categories,
         move_files=move_files,
+        save_uninteresting_files=save_uninteresting_files,
         run_folder_mode=run_folder_mode,
         recursive=recursive,
         detector_verbose=detector_verbose,
@@ -358,6 +361,7 @@ def write_summary(
         "interesting_threshold": config.interesting_threshold,
         "interesting_categories": sorted(config.interesting_categories),
         "move_files": config.move_files,
+        "save_uninteresting_files": config.save_uninteresting_files,
         "recursive": config.recursive,
         "detector_verbose": config.detector_verbose,
         "generate_top_frame_previews": config.generate_top_frame_previews,
@@ -474,6 +478,7 @@ def classify_and_sort_videos(
     interesting_categories: set[str],
     threshold: float,
     move_files: bool,
+    save_uninteresting_files: bool,
 ) -> list[VideoDecision]:
     """Classify video results and copy/move original files into output buckets.
 
@@ -484,6 +489,7 @@ def classify_and_sort_videos(
         interesting_categories: Category IDs considered interesting.
         threshold: Minimum confidence for interesting detections.
         move_files: If True, move files instead of copying.
+        save_uninteresting_files: If False, skip writing uninteresting videos.
 
     Returns:
         list[VideoDecision]: Per-video decisions used for reporting.
@@ -494,6 +500,16 @@ def classify_and_sort_videos(
     for index, image_entry in enumerate(image_entries, start=1):
         decision = analyze_video_result(image_entry, interesting_categories, threshold)
         source = input_dir / decision.relative_path
+        should_write_file = decision.bucket != "uninteresting" or save_uninteresting_files
+
+        if not should_write_file:
+            print(
+                f"[{index}/{total_entries}] Skipped {decision.relative_path}: "
+                "uninteresting output disabled"
+            )
+            decisions.append(decision)
+            continue
+
         if source.exists():
             destination = output_dir / decision.bucket / decision.relative_path
             copy_or_move(source, destination, move=move_files)
@@ -596,6 +612,7 @@ def main() -> int:
         interesting_categories=categories,
         threshold=config.interesting_threshold,
         move_files=config.move_files,
+        save_uninteresting_files=config.save_uninteresting_files,
     )
 
     preview_stats: PreviewExtractionStats | None = None

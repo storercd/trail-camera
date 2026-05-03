@@ -22,6 +22,9 @@ interesting_categories:
 # Move files instead of copying them into output buckets
 move_files: false
 
+# Save uninteresting videos in output/uninteresting; set false to keep only interesting videos
+save_uninteresting_files: false
+
 # Output mode: none (single persistent output) or timestamped (output/runs/<run_id>)
 run_folder_mode: timestamped
 
