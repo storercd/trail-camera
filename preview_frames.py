@@ -344,6 +344,7 @@ def process_record_for_preview(
 def run_speciesnet_postprocessing(
     extracted_paths: list[Path],
     classification_targets: dict[Path, Path],
+    source_paths_by_preview: dict[Path, str],
     speciesnet_model: str | None,
     speciesnet_geofence: bool,
     include_label_in_filename: bool,
@@ -398,6 +399,7 @@ def run_speciesnet_postprocessing(
             candidates = candidates_by_path.get(classification_target, [])
             report_entries.append(
                 {
+                    "source_relative_path": source_paths_by_preview.get(output_image_resolved, ""),
                     "preview_image_original": str(output_image_resolved),
                     "preview_image_final": str(renamed_paths.get(output_image_resolved, output_image_resolved)),
                     "classification_input_image": str(classification_target),
@@ -467,6 +469,7 @@ def extract_top_frames(
     classification_failed = 0
     extracted_paths: list[Path] = []
     classification_targets: dict[Path, Path] = {}
+    source_paths_by_preview: dict[Path, str] = {}
 
     filtered_records = [
         record
@@ -499,6 +502,7 @@ def extract_top_frames(
         assert classification_target is not None
         extracted_paths.append(output_image)
         classification_targets[output_image.resolve()] = classification_target
+        source_paths_by_preview[output_image.resolve()] = record.relative_path
         print(f"[{index}/{total}] {message}")
 
     if classify_with_speciesnet and extracted_paths:
@@ -506,6 +510,7 @@ def extract_top_frames(
         classified, classification_failed = run_speciesnet_postprocessing(
             extracted_paths=extracted_paths,
             classification_targets=classification_targets,
+            source_paths_by_preview=source_paths_by_preview,
             speciesnet_model=speciesnet_model,
             speciesnet_geofence=speciesnet_geofence,
             include_label_in_filename=include_label_in_filename,
