@@ -7,6 +7,7 @@ import argparse
 import json
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,7 @@ class AppConfig:
     interesting_threshold: float
     interesting_categories: list[str]
     move_files: bool
+    run_folder_mode: str
     recursive: bool
     detector_verbose: bool
     generate_top_frame_previews: bool
@@ -67,7 +69,9 @@ class RunPaths:
 
     config_path: Path
     input_dir: Path
+    output_root_dir: Path
     output_dir: Path
+    run_id: str | None
     metadata_dir: Path
     md_results_path: Path
     summary_path: Path
@@ -127,10 +131,11 @@ def load_config(config_path: Path) -> AppConfig:
             raise SystemExit("interesting_categories must be a YAML list")
         categories = [str(c).strip() for c in categories_raw if str(c).strip()]
         move_files = bool(raw_config.get("move_files", False))
+        run_folder_mode = str(raw_config.get("run_folder_mode", "none")).strip().lower()
         recursive = bool(raw_config.get("recursive", False))
         detector_verbose = bool(raw_config.get("detector_verbose", False))
         generate_top_frame_previews = bool(raw_config.get("generate_top_frame_previews", True))
-        preview_output_dir = str(raw_config.get("preview_output_dir", "output/preview_frames"))
+        preview_output_dir = str(raw_config.get("preview_output_dir", "preview_frames"))
         preview_include_uninteresting = bool(raw_config.get("preview_include_uninteresting", False))
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc
@@ -139,6 +144,8 @@ def load_config(config_path: Path) -> AppConfig:
         raise SystemExit("frame_sample must be greater than 0")
     if not 0.0 <= interesting_threshold <= 1.0:
         raise SystemExit("interesting_threshold must be between 0.0 and 1.0")
+    if run_folder_mode not in {"none", "timestamped"}:
+        raise SystemExit("run_folder_mode must be either 'none' or 'timestamped'")
 
     return AppConfig(
         input_dir=input_dir,
@@ -148,6 +155,7 @@ def load_config(config_path: Path) -> AppConfig:
         interesting_threshold=interesting_threshold,
         interesting_categories=categories,
         move_files=move_files,
+        run_folder_mode=run_folder_mode,
         recursive=recursive,
         detector_verbose=detector_verbose,
         generate_top_frame_previews=generate_top_frame_previews,
@@ -321,6 +329,9 @@ def write_summary(
     config: AppConfig,
     config_path: Path,
     preview_stats: PreviewExtractionStats | None,
+    preview_output_dir: Path,
+    run_output_dir: Path,
+    run_id: str | None,
 ) -> None:
     """Write a JSON summary file for the run.
 
@@ -330,12 +341,18 @@ def write_summary(
         config: Runtime configuration used for this run.
         config_path: Path to the config file used for this run.
         preview_stats: Optional statistics from preview frame extraction.
+        preview_output_dir: Resolved output folder for preview frames.
+        run_output_dir: Resolved root output folder for this run.
+        run_id: Timestamp-based run ID when run_folder_mode is timestamped.
     """
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "config_file": str(config_path.resolve()),
         "input_dir": str(Path(config.input_dir).resolve()),
-        "output_dir": str(Path(config.output_dir).resolve()),
+        "output_root_dir": str(Path(config.output_dir).resolve()),
+        "output_dir": str(run_output_dir),
+        "run_folder_mode": config.run_folder_mode,
+        "run_id": run_id,
         "model": config.model,
         "frame_sample": config.frame_sample,
         "interesting_threshold": config.interesting_threshold,
@@ -344,7 +361,7 @@ def write_summary(
         "recursive": config.recursive,
         "detector_verbose": config.detector_verbose,
         "generate_top_frame_previews": config.generate_top_frame_previews,
-        "preview_output_dir": str(Path(config.preview_output_dir).resolve()),
+        "preview_output_dir": str(preview_output_dir),
         "preview_include_uninteresting": config.preview_include_uninteresting,
         "videos": [decision.__dict__ for decision in decisions],
         "counts": {
@@ -375,16 +392,41 @@ def build_run_paths(config_path: Path, config: AppConfig) -> RunPaths:
     Returns:
         RunPaths: All resolved paths needed for processing.
     """
-    output_dir = Path(config.output_dir).resolve()
+    output_root_dir = Path(config.output_dir).resolve()
+    run_id: str | None = None
+    if config.run_folder_mode == "timestamped":
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = output_root_dir / "runs" / run_id
+    else:
+        output_dir = output_root_dir
+
     metadata_dir = output_dir / "metadata"
     return RunPaths(
         config_path=config_path.resolve(),
         input_dir=Path(config.input_dir).resolve(),
+        output_root_dir=output_root_dir,
         output_dir=output_dir,
+        run_id=run_id,
         metadata_dir=metadata_dir,
         md_results_path=metadata_dir / "megadetector_results.json",
         summary_path=metadata_dir / "summary.json",
     )
+
+
+def resolve_preview_output_dir(preview_output_dir: str, run_output_dir: Path) -> Path:
+    """Resolve configured preview output location for the current run.
+
+    Args:
+        preview_output_dir: Configured preview output directory.
+        run_output_dir: Root output directory for the current run.
+
+    Returns:
+        Path: Resolved preview output path.
+    """
+    configured_path = Path(preview_output_dir)
+    if configured_path.is_absolute():
+        return configured_path.resolve()
+    return (run_output_dir / configured_path).resolve()
 
 
 def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
@@ -526,7 +568,10 @@ def main() -> int:
 
     print(f"Using config file: {paths.config_path}")
     print(f"Input directory: {paths.input_dir}")
-    print(f"Output directory: {paths.output_dir}")
+    print(f"Output root directory: {paths.output_root_dir}")
+    print(f"Run output directory: {paths.output_dir}")
+    if paths.run_id is not None:
+        print(f"Run ID: {paths.run_id}")
 
     validate_and_find_videos(paths.input_dir, config.recursive)
     categories = resolve_interesting_categories(config)
@@ -554,8 +599,8 @@ def main() -> int:
     )
 
     preview_stats: PreviewExtractionStats | None = None
+    preview_output_dir = resolve_preview_output_dir(config.preview_output_dir, paths.output_dir)
     if config.generate_top_frame_previews:
-        preview_output_dir = Path(config.preview_output_dir).resolve()
         print(f"Extracting top-frame previews to {preview_output_dir}")
         preview_stats = extract_preview_frames_for_decisions(
             decisions=decisions,
@@ -579,6 +624,9 @@ def main() -> int:
         config=config,
         config_path=paths.config_path,
         preview_stats=preview_stats,
+        preview_output_dir=preview_output_dir,
+        run_output_dir=paths.output_dir,
+        run_id=paths.run_id,
     )
     print(f"Wrote summary metadata to {paths.summary_path}")
 

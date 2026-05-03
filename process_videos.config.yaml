@@ -22,6 +22,9 @@ interesting_categories:
 # Move files instead of copying them into output buckets
 move_files: false
 
+# Output mode: none (single persistent output) or timestamped (output/runs/<run_id>)
+run_folder_mode: timestamped
+
 # Recursively scan input directory for videos
 recursive: false
 
@@ -31,8 +34,8 @@ detector_verbose: false
 # Extract top-frame preview images as part of the main pipeline
 generate_top_frame_previews: true
 
-# Output folder for extracted top-frame preview images
-preview_output_dir: output/preview_frames
+# Output folder for extracted top-frame preview images (relative to current run output)
+preview_output_dir: preview_frames
 
 # Include uninteresting bucket entries when extracting previews
 preview_include_uninteresting: false
