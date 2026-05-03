@@ -146,17 +146,17 @@ def write_html_summary(
     web_video_dir = run_output_dir / "report_videos"
     row_fragments: list[str] = []
     for decision in interesting_decisions:
-        species_entry = species_entries.get(decision.relative_path, {})
+        species_entry = species_entries.get(decision.output_relative_path, {})
         top_classification = species_entry.get("top_classification") or {}
         top_label = html_escape(top_classification.get("label", "unknown"))
-        escaped_relative_path = html_escape(decision.relative_path)
+        escaped_relative_path = html_escape(decision.output_relative_path)
         try:
             top_score = float(top_classification.get("score", 0.0))
         except (TypeError, ValueError):
             top_score = 0.0
 
-        video_path = run_output_dir / decision.bucket / decision.relative_path
-        web_video_path = web_video_dir / f"{Path(decision.relative_path).stem}.mp4"
+        video_path = run_output_dir / decision.bucket / decision.output_relative_path
+        web_video_path = web_video_dir / f"{Path(decision.output_relative_path).stem}.mp4"
         web_video_href = ""
         if video_path.exists():
             transcoded_path = transcode_video_for_web(video_path, web_video_path)
@@ -183,7 +183,7 @@ def write_html_summary(
             "".join(
                 [
                     "<tr>",
-                    f"<td>{html_escape(decision.relative_path)}</td>",
+                    f"<td>{html_escape(decision.output_relative_path)}</td>",
                     f"<td>{top_label}<br><small>{top_score:.3f}</small></td>",
                     "<td>",
                     (

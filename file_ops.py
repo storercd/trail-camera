@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 VIDEO_EXTENSIONS = {
@@ -90,3 +91,30 @@ def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
     if not videos:
         raise SystemExit(f"No videos found in {input_dir}")
     return videos
+
+
+def build_dated_relative_output_path(source: Path, relative_path: str) -> str:
+    """Prefix a relative file name with the source file's creation date.
+
+    Args:
+        source: Source file path used to derive creation timestamp.
+        relative_path: Original relative path from the input tree.
+
+    Returns:
+        str: Relative path with a YYYYMMDD- prefixed filename.
+    """
+    relative = Path(relative_path)
+    try:
+        stat = source.stat()
+    except OSError:
+        return str(relative)
+
+    created_timestamp = getattr(stat, "st_birthtime", stat.st_mtime)
+    date_prefix = datetime.fromtimestamp(created_timestamp).strftime("%Y%m%d")
+    if relative.name.startswith(f"{date_prefix}-"):
+        return str(relative)
+
+    prefixed_name = f"{date_prefix}-{relative.name}"
+    if relative.parent == Path():
+        return prefixed_name
+    return str(relative.parent / prefixed_name)

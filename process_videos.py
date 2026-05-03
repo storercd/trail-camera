@@ -81,6 +81,7 @@ def extract_preview_frames_for_decisions(
     records = [
         TopFrameRecord(
             relative_path=decision.relative_path,
+            output_relative_path=decision.output_relative_path,
             top_frame=decision.top_frame,
             top_confidence=decision.top_confidence,
             bucket=decision.bucket,

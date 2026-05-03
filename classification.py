@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from file_ops import copy_or_move, make_unique_destination
+from file_ops import build_dated_relative_output_path, copy_or_move, make_unique_destination
 from pipeline_models import VideoDecision
 from video_clipping import clip_video_by_frame_window
 
@@ -29,6 +29,7 @@ def analyze_video_result(
     if "failure" in image_entry:
         return VideoDecision(
             relative_path=rel_path,
+            output_relative_path=rel_path,
             bucket="failed",
             top_confidence=None,
             top_category=None,
@@ -48,6 +49,7 @@ def analyze_video_result(
     if best is None:
         return VideoDecision(
             relative_path=rel_path,
+            output_relative_path=rel_path,
             bucket="uninteresting",
             top_confidence=None,
             top_category=None,
@@ -69,6 +71,7 @@ def analyze_video_result(
 
     return VideoDecision(
         relative_path=rel_path,
+        output_relative_path=rel_path,
         bucket="interesting",
         top_confidence=float(best.get("conf", 0.0)),
         top_category=str(best.get("category", "")),
@@ -150,6 +153,11 @@ def classify_and_sort_videos(
     for index, image_entry in enumerate(image_entries, start=1):
         decision = analyze_video_result(image_entry, interesting_categories, threshold)
         source = input_dir / decision.relative_path
+        if source.exists():
+            decision.output_relative_path = build_dated_relative_output_path(
+                source=source,
+                relative_path=decision.relative_path,
+            )
         should_write_file = decision.bucket != "uninteresting" or save_uninteresting_files
 
         if not should_write_file:
@@ -161,7 +169,7 @@ def classify_and_sort_videos(
             continue
 
         if source.exists():
-            destination = output_dir / decision.bucket / decision.relative_path
+            destination = output_dir / decision.bucket / decision.output_relative_path
             if (
                 clip_interesting_videos
                 and decision.bucket == "interesting"
@@ -181,20 +189,20 @@ def classify_and_sort_videos(
                     if move_files:
                         source.unlink(missing_ok=True)
                     print(
-                        f"[{index}/{total_entries}] Clipped {decision.relative_path} "
+                        f"[{index}/{total_entries}] Clipped {decision.output_relative_path} "
                         f"frames {clip_result.start_frame}-{clip_result.end_frame} -> {decision.bucket}"
                     )
                 else:
                     copy_or_move(source, destination, move=move_files)
                     action = "Moved" if move_files else "Copied"
                     print(
-                        f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket} "
+                        f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket} "
                         "(clip failed, saved full video)"
                     )
             else:
                 copy_or_move(source, destination, move=move_files)
                 action = "Moved" if move_files else "Copied"
-                print(f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}")
+                print(f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket}")
         else:
             print(f"[{index}/{total_entries}] Source missing for {decision.relative_path}; skipping copy/move")
         decisions.append(decision)

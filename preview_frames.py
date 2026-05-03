@@ -16,6 +16,7 @@ class TopFrameRecord:
     """Per-video frame selection metadata for preview extraction."""
 
     relative_path: str
+    output_relative_path: str
     top_frame: int | None
     top_confidence: float | None
     bucket: str
@@ -264,7 +265,7 @@ def build_output_path(output_dir: Path, record: TopFrameRecord) -> Path:
     Returns:
         Path: Destination path for preview image.
     """
-    relative_video = Path(record.relative_path)
+    relative_video = Path(record.output_relative_path)
     parent = output_dir / relative_video.parent
     frame_label = record.top_frame if record.top_frame is not None else -1
     confidence_label = (
@@ -502,7 +503,7 @@ def extract_top_frames(
         assert classification_target is not None
         extracted_paths.append(output_image)
         classification_targets[output_image.resolve()] = classification_target
-        source_paths_by_preview[output_image.resolve()] = record.relative_path
+        source_paths_by_preview[output_image.resolve()] = record.output_relative_path
         print(f"[{index}/{total}] {message}")
 
     if classify_with_speciesnet and extracted_paths:

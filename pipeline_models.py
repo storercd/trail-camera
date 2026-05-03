@@ -11,6 +11,7 @@ class VideoDecision:
     """Stores sorting and scoring information for one processed video."""
 
     relative_path: str
+    output_relative_path: str
     bucket: str
     top_confidence: float | None
     top_category: str | None
