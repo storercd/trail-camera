@@ -15,6 +15,7 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - interesting_threshold: Detection confidence threshold for classifying a video as interesting (default: 0.7)
 - interesting_categories: Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
 - move_files: Move files instead of copying them into output buckets
+- save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
 - run_folder_mode: Output mode; use none for persistent output or timestamped for output/runs/<run_id>
 - recursive: Recursively scan input directory for videos
 - detector_verbose: Enable verbose MegaDetector output while processing
