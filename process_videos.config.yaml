@@ -37,6 +37,9 @@ recursive: false
 # Enable verbose MegaDetector output while processing
 detector_verbose: false
 
+# Generate summary.html and browser-playable report_videos sidecars
+generate_html_report: true
+
 # Extract top-frame preview images as part of the main pipeline
 generate_top_frame_previews: true
 
