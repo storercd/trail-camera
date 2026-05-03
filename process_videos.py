@@ -15,6 +15,7 @@ import yaml
 from megadetector.detection.process_video import ProcessVideoOptions, process_videos
 
 from preview_frames import PreviewExtractionStats, TopFrameRecord, extract_top_frames
+from video_clipping import clip_video_by_frame_window
 
 VIDEO_EXTENSIONS = {
     ".avi",
@@ -41,6 +42,8 @@ class VideoDecision:
     top_category: str | None
     top_frame: int | None
     top_bbox: list[float] | None
+    first_interesting_frame: int | None
+    last_interesting_frame: int | None
     num_detections: int
     failure: str | None
 
@@ -57,6 +60,7 @@ class AppConfig:
     interesting_categories: list[str]
     move_files: bool
     save_uninteresting_files: bool
+    clip_interesting_videos: bool
     run_folder_mode: str
     recursive: bool
     detector_verbose: bool
@@ -141,6 +145,7 @@ def load_config(config_path: Path) -> AppConfig:
         categories = [str(c).strip() for c in categories_raw if str(c).strip()]
         move_files = bool(raw_config.get("move_files", False))
         save_uninteresting_files = bool(raw_config.get("save_uninteresting_files", True))
+        clip_interesting_videos = bool(raw_config.get("clip_interesting_videos", True))
         run_folder_mode = str(raw_config.get("run_folder_mode", "none")).strip().lower()
         recursive = bool(raw_config.get("recursive", False))
         detector_verbose = bool(raw_config.get("detector_verbose", False))
@@ -175,6 +180,7 @@ def load_config(config_path: Path) -> AppConfig:
         interesting_categories=categories,
         move_files=move_files,
         save_uninteresting_files=save_uninteresting_files,
+        clip_interesting_videos=clip_interesting_videos,
         run_folder_mode=run_folder_mode,
         recursive=recursive,
         detector_verbose=detector_verbose,
@@ -280,21 +286,16 @@ def analyze_video_result(
             top_category=None,
             top_frame=None,
             top_bbox=None,
+            first_interesting_frame=None,
+            last_interesting_frame=None,
             num_detections=0,
             failure=str(image_entry["failure"]),
         )
 
     detections = image_entry.get("detections") or []
-    best: dict[str, Any] | None = None
-    interesting_count = 0
-
-    for det in detections:
-        confidence = float(det.get("conf", 0.0))
-        category = str(det.get("category", ""))
-        if category in interesting_categories and confidence >= threshold:
-            interesting_count += 1
-            if best is None or confidence > float(best.get("conf", 0.0)):
-                best = det
+    best, interesting_count, first_interesting_frame, last_interesting_frame = (
+        collect_interesting_detection_stats(detections, interesting_categories, threshold)
+    )
 
     if best is None:
         return VideoDecision(
@@ -304,6 +305,8 @@ def analyze_video_result(
             top_category=None,
             top_frame=None,
             top_bbox=None,
+            first_interesting_frame=None,
+            last_interesting_frame=None,
             num_detections=0,
             failure=None,
         )
@@ -323,9 +326,47 @@ def analyze_video_result(
         top_category=str(best.get("category", "")),
         top_frame=int(best.get("frame_number", -1)),
         top_bbox=normalized_bbox,
+        first_interesting_frame=first_interesting_frame,
+        last_interesting_frame=last_interesting_frame,
         num_detections=interesting_count,
         failure=None,
     )
+
+
+def collect_interesting_detection_stats(
+    detections: list[dict[str, Any]],
+    interesting_categories: set[str],
+    threshold: float,
+) -> tuple[dict[str, Any] | None, int, int | None, int | None]:
+    """Collect best detection and frame bounds for interesting detections.
+
+    Returns:
+        tuple[dict[str, Any] | None, int, int | None, int | None]:
+            Best detection, count, first interesting frame, and last interesting frame.
+    """
+    best: dict[str, Any] | None = None
+    interesting_count = 0
+    first_interesting_frame: int | None = None
+    last_interesting_frame: int | None = None
+
+    for det in detections:
+        confidence = float(det.get("conf", 0.0))
+        category = str(det.get("category", ""))
+        if category not in interesting_categories or confidence < threshold:
+            continue
+
+        interesting_count += 1
+        frame_number = int(det.get("frame_number", -1))
+        if frame_number >= 0:
+            if first_interesting_frame is None or frame_number < first_interesting_frame:
+                first_interesting_frame = frame_number
+            if last_interesting_frame is None or frame_number > last_interesting_frame:
+                last_interesting_frame = frame_number
+
+        if best is None or confidence > float(best.get("conf", 0.0)):
+            best = det
+
+    return best, interesting_count, first_interesting_frame, last_interesting_frame
 
 
 def run_detector(
@@ -399,6 +440,7 @@ def write_summary(
         "interesting_categories": sorted(config.interesting_categories),
         "move_files": config.move_files,
         "save_uninteresting_files": config.save_uninteresting_files,
+        "clip_interesting_videos": config.clip_interesting_videos,
         "recursive": config.recursive,
         "detector_verbose": config.detector_verbose,
         "generate_top_frame_previews": config.generate_top_frame_previews,
@@ -526,6 +568,8 @@ def classify_and_sort_videos(
     threshold: float,
     move_files: bool,
     save_uninteresting_files: bool,
+    clip_interesting_videos: bool,
+    clip_buffer_frames: int,
 ) -> list[VideoDecision]:
     """Classify video results and copy/move original files into output buckets.
 
@@ -537,6 +581,8 @@ def classify_and_sort_videos(
         threshold: Minimum confidence for interesting detections.
         move_files: If True, move files instead of copying.
         save_uninteresting_files: If False, skip writing uninteresting videos.
+        clip_interesting_videos: If True, clip interesting videos to detection window.
+        clip_buffer_frames: Buffer to add before first and after last interesting frame.
 
     Returns:
         list[VideoDecision]: Per-video decisions used for reporting.
@@ -559,9 +605,39 @@ def classify_and_sort_videos(
 
         if source.exists():
             destination = output_dir / decision.bucket / decision.relative_path
-            copy_or_move(source, destination, move=move_files)
-            action = "Moved" if move_files else "Copied"
-            print(f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}")
+            if (
+                clip_interesting_videos
+                and decision.bucket == "interesting"
+                and decision.first_interesting_frame is not None
+                and decision.last_interesting_frame is not None
+            ):
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                clip_destination = make_unique_destination(destination)
+                clip_result = clip_video_by_frame_window(
+                    source_video=source,
+                    output_video=clip_destination,
+                    first_frame=decision.first_interesting_frame,
+                    last_frame=decision.last_interesting_frame,
+                    buffer_frames=clip_buffer_frames,
+                )
+                if clip_result is not None:
+                    if move_files:
+                        source.unlink(missing_ok=True)
+                    print(
+                        f"[{index}/{total_entries}] Clipped {decision.relative_path} "
+                        f"frames {clip_result.start_frame}-{clip_result.end_frame} -> {decision.bucket}"
+                    )
+                else:
+                    copy_or_move(source, destination, move=move_files)
+                    action = "Moved" if move_files else "Copied"
+                    print(
+                        f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket} "
+                        "(clip failed, saved full video)"
+                    )
+            else:
+                copy_or_move(source, destination, move=move_files)
+                action = "Moved" if move_files else "Copied"
+                print(f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}")
         else:
             print(f"[{index}/{total_entries}] Source missing for {decision.relative_path}; skipping copy/move")
         decisions.append(decision)
@@ -685,6 +761,8 @@ def main() -> int:
         threshold=config.interesting_threshold,
         move_files=config.move_files,
         save_uninteresting_files=config.save_uninteresting_files,
+        clip_interesting_videos=config.clip_interesting_videos,
+        clip_buffer_frames=config.frame_sample,
     )
 
     preview_stats: PreviewExtractionStats | None = None
