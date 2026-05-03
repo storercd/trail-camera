@@ -21,6 +21,7 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - recursive: Recursively scan input directory for videos
 - detector_verbose: Enable verbose MegaDetector output while processing
 - generate_html_report: Generate summary.html and browser-playable report_videos sidecars
+- auto_open_html_report: Open summary.html in the default local app after it is generated
 - generate_top_frame_previews: Extract top-frame preview images in the same run
 - preview_output_dir: Output folder for top-frame preview images (relative to run output unless absolute)
 - preview_include_uninteresting: Include uninteresting videos when extracting previews
@@ -53,6 +54,9 @@ generate_top_frame_previews is true in the config.
 
 The HTML summary report and its browser-playable report_videos sidecars are only
 generated when generate_html_report is true in the config.
+
+When auto_open_html_report is true, the generated summary.html is opened in the
+default local browser/app after the file is written.
 
 When clip_interesting_videos is true, each interesting output video is trimmed to
 the first and last interesting detection frame, expanded by frame_sample on both
