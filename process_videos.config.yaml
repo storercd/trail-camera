@@ -40,6 +40,9 @@ detector_verbose: false
 # Generate summary.html and browser-playable report_videos sidecars
 generate_html_report: true
 
+# Open summary.html automatically in the default browser/app after generation
+auto_open_html_report: true
+
 # Extract top-frame preview images as part of the main pipeline
 generate_top_frame_previews: true
 

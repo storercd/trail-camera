@@ -7,6 +7,8 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +68,7 @@ class AppConfig:
     recursive: bool
     detector_verbose: bool
     generate_html_report: bool
+    auto_open_html_report: bool
     generate_top_frame_previews: bool
     preview_output_dir: str
     preview_include_uninteresting: bool
@@ -153,6 +156,7 @@ def load_config(config_path: Path) -> AppConfig:
         recursive = bool(raw_config.get("recursive", False))
         detector_verbose = bool(raw_config.get("detector_verbose", False))
         generate_html_report = bool(raw_config.get("generate_html_report", True))
+        auto_open_html_report = bool(raw_config.get("auto_open_html_report", False))
         generate_top_frame_previews = bool(raw_config.get("generate_top_frame_previews", True))
         preview_output_dir = str(raw_config.get("preview_output_dir", "preview_frames"))
         preview_include_uninteresting = bool(raw_config.get("preview_include_uninteresting", False))
@@ -189,6 +193,7 @@ def load_config(config_path: Path) -> AppConfig:
         recursive=recursive,
         detector_verbose=detector_verbose,
         generate_html_report=generate_html_report,
+        auto_open_html_report=auto_open_html_report,
         generate_top_frame_previews=generate_top_frame_previews,
         preview_output_dir=preview_output_dir,
         preview_include_uninteresting=preview_include_uninteresting,
@@ -449,6 +454,7 @@ def write_summary(
         "recursive": config.recursive,
         "detector_verbose": config.detector_verbose,
         "generate_html_report": config.generate_html_report,
+        "auto_open_html_report": config.auto_open_html_report,
         "generate_top_frame_previews": config.generate_top_frame_previews,
         "preview_output_dir": str(preview_output_dir),
         "preview_include_uninteresting": config.preview_include_uninteresting,
@@ -817,6 +823,34 @@ def write_html_summary(
         handle.write(page)
 
 
+def open_file_in_default_app(path: Path) -> bool:
+    """Open a file using the platform's default application.
+
+    Args:
+        path: File path to open.
+
+    Returns:
+        bool: True if the launch command was started successfully.
+    """
+    if not path.exists():
+        return False
+
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+            return True
+        if os.name == "nt":
+            os.startfile(str(path))
+            return True
+        if os.name == "posix":
+            subprocess.Popen(["xdg-open", str(path)])
+            return True
+    except (OSError, ValueError):
+        return False
+
+    return False
+
+
 def build_run_paths(config_path: Path, config: AppConfig) -> RunPaths:
     """Build resolved filesystem paths used throughout one run.
 
@@ -1162,6 +1196,11 @@ def main() -> int:
             species_classification_report_path=species_classification_report_path,
         )
         print(f"Wrote HTML summary to {paths.html_summary_path}")
+        if config.auto_open_html_report:
+            if open_file_in_default_app(paths.html_summary_path):
+                print(f"Opened HTML summary in default app: {paths.html_summary_path}")
+            else:
+                print(f"Failed to open HTML summary automatically: {paths.html_summary_path}")
     else:
         print("HTML summary disabled by config")
 
