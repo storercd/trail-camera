@@ -13,6 +13,8 @@ from typing import Any
 import yaml
 from megadetector.detection.process_video import ProcessVideoOptions, process_videos
 
+from preview_frames import PreviewExtractionStats, TopFrameRecord, extract_top_frames
+
 VIDEO_EXTENSIONS = {
     ".avi",
     ".mp4",
@@ -54,6 +56,9 @@ class AppConfig:
     move_files: bool
     recursive: bool
     detector_verbose: bool
+    generate_top_frame_previews: bool
+    preview_output_dir: str
+    preview_include_uninteresting: bool
 
 
 @dataclass
@@ -124,6 +129,9 @@ def load_config(config_path: Path) -> AppConfig:
         move_files = bool(raw_config.get("move_files", False))
         recursive = bool(raw_config.get("recursive", False))
         detector_verbose = bool(raw_config.get("detector_verbose", False))
+        generate_top_frame_previews = bool(raw_config.get("generate_top_frame_previews", True))
+        preview_output_dir = str(raw_config.get("preview_output_dir", "output/preview_frames"))
+        preview_include_uninteresting = bool(raw_config.get("preview_include_uninteresting", False))
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc
 
@@ -142,6 +150,9 @@ def load_config(config_path: Path) -> AppConfig:
         move_files=move_files,
         recursive=recursive,
         detector_verbose=detector_verbose,
+        generate_top_frame_previews=generate_top_frame_previews,
+        preview_output_dir=preview_output_dir,
+        preview_include_uninteresting=preview_include_uninteresting,
     )
 
 
@@ -309,6 +320,7 @@ def write_summary(
     decisions: list[VideoDecision],
     config: AppConfig,
     config_path: Path,
+    preview_stats: PreviewExtractionStats | None,
 ) -> None:
     """Write a JSON summary file for the run.
 
@@ -317,6 +329,7 @@ def write_summary(
         decisions: Per-video decisions generated from detector output.
         config: Runtime configuration used for this run.
         config_path: Path to the config file used for this run.
+        preview_stats: Optional statistics from preview frame extraction.
     """
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -330,6 +343,9 @@ def write_summary(
         "move_files": config.move_files,
         "recursive": config.recursive,
         "detector_verbose": config.detector_verbose,
+        "generate_top_frame_previews": config.generate_top_frame_previews,
+        "preview_output_dir": str(Path(config.preview_output_dir).resolve()),
+        "preview_include_uninteresting": config.preview_include_uninteresting,
         "videos": [decision.__dict__ for decision in decisions],
         "counts": {
             "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
@@ -338,6 +354,13 @@ def write_summary(
             "total": len(decisions),
         },
     }
+    if preview_stats is not None:
+        payload["preview_frames"] = {
+            "total_candidates": preview_stats.total_candidates,
+            "extracted": preview_stats.extracted,
+            "skipped": preview_stats.skipped,
+            "failed": preview_stats.failed,
+        }
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
@@ -457,6 +480,40 @@ def compute_bucket_counts(decisions: list[VideoDecision]) -> dict[str, int]:
     }
 
 
+def extract_preview_frames_for_decisions(
+    decisions: list[VideoDecision],
+    input_dir: Path,
+    preview_output_dir: Path,
+    include_uninteresting: bool,
+) -> PreviewExtractionStats:
+    """Extract preview images for selected decisions.
+
+    Args:
+        decisions: Per-video decisions from classification.
+        input_dir: Root folder containing source videos.
+        preview_output_dir: Destination folder for preview images.
+        include_uninteresting: Include uninteresting videos when true.
+
+    Returns:
+        PreviewExtractionStats: Frame extraction summary counters.
+    """
+    records = [
+        TopFrameRecord(
+            relative_path=decision.relative_path,
+            top_frame=decision.top_frame,
+            top_confidence=decision.top_confidence,
+            bucket=decision.bucket,
+        )
+        for decision in decisions
+    ]
+    return extract_top_frames(
+        records=records,
+        input_dir=input_dir,
+        output_dir=preview_output_dir,
+        include_uninteresting=include_uninteresting,
+    )
+
+
 def main() -> int:
     """Run the end-to-end video processing workflow.
 
@@ -496,11 +553,32 @@ def main() -> int:
         move_files=config.move_files,
     )
 
+    preview_stats: PreviewExtractionStats | None = None
+    if config.generate_top_frame_previews:
+        preview_output_dir = Path(config.preview_output_dir).resolve()
+        print(f"Extracting top-frame previews to {preview_output_dir}")
+        preview_stats = extract_preview_frames_for_decisions(
+            decisions=decisions,
+            input_dir=paths.input_dir,
+            preview_output_dir=preview_output_dir,
+            include_uninteresting=config.preview_include_uninteresting,
+        )
+        print(
+            "Preview extraction complete. "
+            f"candidates={preview_stats.total_candidates}, "
+            f"extracted={preview_stats.extracted}, "
+            f"skipped={preview_stats.skipped}, "
+            f"failed={preview_stats.failed}"
+        )
+    else:
+        print("Preview extraction disabled by config")
+
     write_summary(
         summary_path=paths.summary_path,
         decisions=decisions,
         config=config,
         config_path=paths.config_path,
+        preview_stats=preview_stats,
     )
     print(f"Wrote summary metadata to {paths.summary_path}")
 

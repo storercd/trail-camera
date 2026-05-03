@@ -27,3 +27,12 @@ recursive: false
 
 # Enable verbose MegaDetector output while processing
 detector_verbose: false
+
+# Extract top-frame preview images as part of the main pipeline
+generate_top_frame_previews: true
+
+# Output folder for extracted top-frame preview images
+preview_output_dir: output/preview_frames
+
+# Include uninteresting bucket entries when extracting previews
+preview_include_uninteresting: false
