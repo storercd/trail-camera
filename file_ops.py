@@ -28,7 +28,8 @@ def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
     Returns:
         list[Path]: Sorted list of matching video files.
     """
-    iterator = input_dir.rglob("*") if recursive else input_dir.glob("*")
+    # Always recurse through subfolders to support complex input trees.
+    iterator = input_dir.rglob("*")
     return sorted(p for p in iterator if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
 
 
@@ -54,13 +55,16 @@ def make_unique_destination(dest: Path) -> Path:
         index += 1
 
 
-def copy_or_move(src: Path, dst: Path, move: bool) -> None:
+def copy_or_move(src: Path, dst: Path, move: bool) -> Path:
     """Copy or move a file to its destination, avoiding collisions.
 
     Args:
         src: Source file path.
         dst: Target file path.
         move: If True, move the file; otherwise copy it.
+
+    Returns:
+        Path: The final destination path written after uniqueness handling.
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst = make_unique_destination(dst)
@@ -68,6 +72,7 @@ def copy_or_move(src: Path, dst: Path, move: bool) -> None:
         shutil.move(str(src), str(dst))
     else:
         shutil.copy2(src, dst)
+    return dst
 
 
 def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
@@ -112,9 +117,7 @@ def build_dated_relative_output_path(source: Path, relative_path: str) -> str:
     created_timestamp = getattr(stat, "st_birthtime", stat.st_mtime)
     date_prefix = datetime.fromtimestamp(created_timestamp).strftime("%Y%m%d")
     if relative.name.startswith(f"{date_prefix}-"):
-        return str(relative)
+        return relative.name
 
-    prefixed_name = f"{date_prefix}-{relative.name}"
-    if relative.parent == Path():
-        return prefixed_name
-    return str(relative.parent / prefixed_name)
+    # Flatten output naming; do not preserve source folder structure.
+    return f"{date_prefix}-{relative.name}"

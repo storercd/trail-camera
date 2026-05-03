@@ -40,16 +40,18 @@ def run_detector(
         recursive: Whether to scan input recursively.
         verbose: Whether to enable MegaDetector verbose output.
     """
+    effective_recursive = True
     print(
         "Starting MegaDetector run: "
-        f"input={input_dir}, model={model}, frame_sample={frame_sample}, recursive={recursive}"
+        f"input={input_dir}, model={model}, frame_sample={frame_sample}, recursive={effective_recursive}"
     )
     options = ProcessVideoOptions()
     options.input_video_file = str(input_dir)
     options.output_json_file = str(results_file)
     options.model_file = model
     options.frame_sample = frame_sample
-    options.recursive = recursive
+    # Always recurse through nested folders for directory inputs.
+    options.recursive = effective_recursive
     options.verbose = verbose
     process_videos(options)
     print(f"MegaDetector run complete. Results written to {results_file}")
