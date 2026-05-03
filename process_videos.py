@@ -56,6 +56,18 @@ class AppConfig:
     detector_verbose: bool
 
 
+@dataclass
+class RunPaths:
+    """Resolved paths used during a processing run."""
+
+    config_path: Path
+    input_dir: Path
+    output_dir: Path
+    metadata_dir: Path
+    md_results_path: Path
+    summary_path: Path
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the video processing workflow.
 
@@ -330,43 +342,141 @@ def write_summary(
         json.dump(payload, handle, indent=2)
 
 
+def build_run_paths(config_path: Path, config: AppConfig) -> RunPaths:
+    """Build resolved filesystem paths used throughout one run.
+
+    Args:
+        config_path: Path to the configuration file.
+        config: Loaded runtime configuration values.
+
+    Returns:
+        RunPaths: All resolved paths needed for processing.
+    """
+    output_dir = Path(config.output_dir).resolve()
+    metadata_dir = output_dir / "metadata"
+    return RunPaths(
+        config_path=config_path.resolve(),
+        input_dir=Path(config.input_dir).resolve(),
+        output_dir=output_dir,
+        metadata_dir=metadata_dir,
+        md_results_path=metadata_dir / "megadetector_results.json",
+        summary_path=metadata_dir / "summary.json",
+    )
+
+
+def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
+    """Validate input directory and return matching video files.
+
+    Args:
+        input_dir: Directory expected to contain videos.
+        recursive: Whether to search subdirectories.
+
+    Returns:
+        list[Path]: Video files discovered for processing.
+
+    Raises:
+        SystemExit: If input directory is missing/invalid or no videos are found.
+    """
+    if not input_dir.exists() or not input_dir.is_dir():
+        raise SystemExit(f"Input directory does not exist: {input_dir}")
+
+    videos = find_videos(input_dir, recursive)
+    print(f"Found {len(videos)} video(s) to process")
+    if not videos:
+        raise SystemExit(f"No videos found in {input_dir}")
+    return videos
+
+
+def resolve_interesting_categories(config: AppConfig) -> set[str]:
+    """Normalize interesting category IDs from config.
+
+    Args:
+        config: Loaded runtime configuration.
+
+    Returns:
+        set[str]: Category IDs used to classify videos as interesting.
+    """
+    categories = {
+        category.strip() for category in config.interesting_categories if category.strip()
+    }
+    return categories or DEFAULT_INTERESTING_CATEGORIES
+
+
+def classify_and_sort_videos(
+    image_entries: list[dict[str, Any]],
+    input_dir: Path,
+    output_dir: Path,
+    interesting_categories: set[str],
+    threshold: float,
+    move_files: bool,
+) -> list[VideoDecision]:
+    """Classify video results and copy/move original files into output buckets.
+
+    Args:
+        image_entries: MegaDetector image records loaded from results JSON.
+        input_dir: Root input directory for source videos.
+        output_dir: Root output directory for bucketed files.
+        interesting_categories: Category IDs considered interesting.
+        threshold: Minimum confidence for interesting detections.
+        move_files: If True, move files instead of copying.
+
+    Returns:
+        list[VideoDecision]: Per-video decisions used for reporting.
+    """
+    decisions: list[VideoDecision] = []
+    total_entries = len(image_entries)
+
+    for index, image_entry in enumerate(image_entries, start=1):
+        decision = analyze_video_result(image_entry, interesting_categories, threshold)
+        source = input_dir / decision.relative_path
+        if source.exists():
+            destination = output_dir / decision.bucket / decision.relative_path
+            copy_or_move(source, destination, move=move_files)
+            action = "Moved" if move_files else "Copied"
+            print(f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}")
+        else:
+            print(f"[{index}/{total_entries}] Source missing for {decision.relative_path}; skipping copy/move")
+        decisions.append(decision)
+
+    return decisions
+
+
+def compute_bucket_counts(decisions: list[VideoDecision]) -> dict[str, int]:
+    """Count decisions by output bucket.
+
+    Args:
+        decisions: Per-video decisions from one run.
+
+    Returns:
+        dict[str, int]: Counts for interesting, uninteresting, and failed buckets.
+    """
+    return {
+        "interesting": sum(1 for decision in decisions if decision.bucket == "interesting"),
+        "uninteresting": sum(1 for decision in decisions if decision.bucket == "uninteresting"),
+        "failed": sum(1 for decision in decisions if decision.bucket == "failed"),
+    }
+
+
 def main() -> int:
     """Run the end-to-end video processing workflow.
 
     Returns:
         int: Process exit code.
-
-    Raises:
-        SystemExit: If the input directory is invalid or no videos are found.
     """
     args = parse_args()
-    config_path = Path(args.config).resolve()
-    config = load_config(config_path)
+    config = load_config(Path(args.config))
+    paths = build_run_paths(Path(args.config), config)
 
-    input_dir = Path(config.input_dir).resolve()
-    output_dir = Path(config.output_dir).resolve()
-    print(f"Using config file: {config_path}")
-    print(f"Input directory: {input_dir}")
-    print(f"Output directory: {output_dir}")
-    if not input_dir.exists() or not input_dir.is_dir():
-        raise SystemExit(f"Input directory does not exist: {input_dir}")
+    print(f"Using config file: {paths.config_path}")
+    print(f"Input directory: {paths.input_dir}")
+    print(f"Output directory: {paths.output_dir}")
 
-    videos = find_videos(input_dir, config.recursive)
-    print(f"Found {len(videos)} video(s) to process")
-    if not videos:
-        raise SystemExit(f"No videos found in {input_dir}")
-
-    categories = {
-        c.strip() for c in config.interesting_categories if c.strip()
-    } or DEFAULT_INTERESTING_CATEGORIES
-
-    metadata_dir = output_dir / "metadata"
-    md_results_path = metadata_dir / "megadetector_results.json"
-    summary_path = metadata_dir / "summary.json"
+    validate_and_find_videos(paths.input_dir, config.recursive)
+    categories = resolve_interesting_categories(config)
 
     run_detector(
-        input_dir=input_dir,
-        results_file=md_results_path,
+        input_dir=paths.input_dir,
+        results_file=paths.md_results_path,
         model=config.model,
         frame_sample=config.frame_sample,
         recursive=config.recursive,
@@ -374,53 +484,35 @@ def main() -> int:
     )
 
     print("Loading MegaDetector results for classification")
-    results = load_results(md_results_path)
+    results = load_results(paths.md_results_path)
     image_entries: list[dict[str, Any]] = results.get("images", [])
     print(f"Loaded {len(image_entries)} video result record(s)")
-
-    decisions: list[VideoDecision] = []
-    total_entries = len(image_entries)
-    for index, image_entry in enumerate(image_entries, start=1):
-        decision = analyze_video_result(
-            image_entry=image_entry,
-            interesting_categories=categories,
-            threshold=config.interesting_threshold,
-        )
-        source = input_dir / decision.relative_path
-        if source.exists():
-            destination = output_dir / decision.bucket / decision.relative_path
-            copy_or_move(source, destination, move=config.move_files)
-            action = "Moved" if config.move_files else "Copied"
-            print(
-                f"[{index}/{total_entries}] {action} {decision.relative_path} -> {decision.bucket}"
-            )
-        else:
-            print(
-                f"[{index}/{total_entries}] Source missing for {decision.relative_path}; skipping copy/move"
-            )
-        decisions.append(decision)
+    decisions = classify_and_sort_videos(
+        image_entries=image_entries,
+        input_dir=paths.input_dir,
+        output_dir=paths.output_dir,
+        interesting_categories=categories,
+        threshold=config.interesting_threshold,
+        move_files=config.move_files,
+    )
 
     write_summary(
-        summary_path=summary_path,
+        summary_path=paths.summary_path,
         decisions=decisions,
         config=config,
-        config_path=config_path,
+        config_path=paths.config_path,
     )
-    print(f"Wrote summary metadata to {summary_path}")
+    print(f"Wrote summary metadata to {paths.summary_path}")
 
-    counts = {
-        "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
-        "uninteresting": sum(1 for d in decisions if d.bucket == "uninteresting"),
-        "failed": sum(1 for d in decisions if d.bucket == "failed"),
-    }
+    counts = compute_bucket_counts(decisions)
     print(
         "Finished sorting videos. "
         f"interesting={counts['interesting']}, "
         f"uninteresting={counts['uninteresting']}, "
         f"failed={counts['failed']}"
     )
-    print(f"Raw MegaDetector output: {md_results_path}")
-    print(f"Summary report: {summary_path}")
+    print(f"Raw MegaDetector output: {paths.md_results_path}")
+    print(f"Summary report: {paths.summary_path}")
     return 0
 
 
