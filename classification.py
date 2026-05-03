@@ -170,6 +170,7 @@ def classify_and_sort_videos(
 
         if source.exists():
             destination = output_dir / decision.bucket / decision.output_relative_path
+            bucket_root = output_dir / decision.bucket
             if (
                 clip_interesting_videos
                 and decision.bucket == "interesting"
@@ -186,6 +187,7 @@ def classify_and_sort_videos(
                     buffer_frames=clip_buffer_frames,
                 )
                 if clip_result is not None:
+                    decision.output_relative_path = str(clip_destination.relative_to(bucket_root))
                     if move_files:
                         source.unlink(missing_ok=True)
                     print(
@@ -193,14 +195,16 @@ def classify_and_sort_videos(
                         f"frames {clip_result.start_frame}-{clip_result.end_frame} -> {decision.bucket}"
                     )
                 else:
-                    copy_or_move(source, destination, move=move_files)
+                    written_path = copy_or_move(source, destination, move=move_files)
+                    decision.output_relative_path = str(written_path.relative_to(bucket_root))
                     action = "Moved" if move_files else "Copied"
                     print(
                         f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket} "
                         "(clip failed, saved full video)"
                     )
             else:
-                copy_or_move(source, destination, move=move_files)
+                written_path = copy_or_move(source, destination, move=move_files)
+                decision.output_relative_path = str(written_path.relative_to(bucket_root))
                 action = "Moved" if move_files else "Copied"
                 print(f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket}")
         else:
