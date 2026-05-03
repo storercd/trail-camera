@@ -1,0 +1,8 @@
+# working files
+input/
+output/
+
+# dev environment
+venv/
+__pycache__/
+
