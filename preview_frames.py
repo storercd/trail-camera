@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +102,37 @@ def parse_speciesnet_top_class(classifications: Any) -> SpeciesClassification | 
     return SpeciesClassification(label=label, score=score, raw_class=raw_class)
 
 
+def parse_speciesnet_candidates(classifications: Any) -> list[dict[str, Any]]:
+    """Convert SpeciesNet classifications payload into candidate rows.
+
+    Returns:
+        list[dict[str, Any]]: Candidate list with raw class, display label, and score.
+    """
+    if not isinstance(classifications, dict):
+        return []
+
+    classes = classifications.get("classes")
+    scores = classifications.get("scores")
+    if not isinstance(classes, list) or not isinstance(scores, list):
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for raw_class, score in zip(classes, scores, strict=False):
+        try:
+            score_value = float(score)
+        except (TypeError, ValueError):
+            continue
+        raw_class_value = str(raw_class)
+        candidates.append(
+            {
+                "raw_class": raw_class_value,
+                "label": raw_class_value.split(";")[-1].strip() or "unknown",
+                "score": score_value,
+            }
+        )
+    return candidates
+
+
 def create_species_crop(
     image_path: Path,
     bbox: list[float] | None,
@@ -162,14 +194,15 @@ def classify_preview_images_with_speciesnet(
     image_paths: list[Path],
     model_name: str | None,
     geofence: bool,
-) -> tuple[dict[Path, SpeciesClassification], int]:
+) -> tuple[dict[Path, SpeciesClassification], dict[Path, list[dict[str, Any]]], int]:
     """Classify extracted preview images with SpeciesNet.
 
     Returns:
-        tuple[dict[Path, SpeciesClassification], int]: Successful classifications and failures.
+        tuple[dict[Path, SpeciesClassification], dict[Path, list[dict[str, Any]]], int]:
+            Top classifications, full candidate rows by path, and failures.
     """
     if not image_paths:
-        return {}, 0
+        return {}, {}, 0
 
     from speciesnet import DEFAULT_MODEL, SpeciesNet
 
@@ -180,6 +213,7 @@ def classify_preview_images_with_speciesnet(
 
     predictions = result.get("predictions", []) if isinstance(result, dict) else []
     by_path: dict[Path, SpeciesClassification] = {}
+    candidates_by_path: dict[Path, list[dict[str, Any]]] = {}
     failures = 0
 
     for prediction in predictions:
@@ -197,10 +231,27 @@ def classify_preview_images_with_speciesnet(
             failures += 1
             continue
 
-        by_path[Path(str(filepath)).resolve()] = top_class
+        resolved_path = Path(str(filepath)).resolve()
+        by_path[resolved_path] = top_class
+        candidates_by_path[resolved_path] = parse_speciesnet_candidates(prediction.get("classifications"))
 
     failures += max(0, len(resolved_paths) - len(by_path))
-    return by_path, failures
+    return by_path, candidates_by_path, failures
+
+
+def write_species_classification_report(
+    report_path: Path,
+    report_data: dict[str, Any],
+) -> None:
+    """Write detailed SpeciesNet classification report JSON.
+
+    Args:
+        report_path: Output JSON file path.
+        report_data: Serializable report payload.
+    """
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with report_path.open("w", encoding="utf-8") as handle:
+        json.dump(report_data, handle, indent=2)
 
 
 def build_output_path(output_dir: Path, record: TopFrameRecord) -> Path:
@@ -290,6 +341,92 @@ def process_record_for_preview(
     return "extracted", output_image, classification_target, f"Wrote {output_image}"
 
 
+def run_speciesnet_postprocessing(
+    extracted_paths: list[Path],
+    classification_targets: dict[Path, Path],
+    speciesnet_model: str | None,
+    speciesnet_geofence: bool,
+    include_label_in_filename: bool,
+    speciesnet_use_crops: bool,
+    species_crop_padding: float,
+    species_classification_report_path: Path | None,
+) -> tuple[int, int]:
+    """Classify preview images, optionally rename files, and write a detailed report.
+
+    Returns:
+        tuple[int, int]: classified count and classification failure count.
+    """
+    try:
+        classifications, candidates_by_path, classification_failed = classify_preview_images_with_speciesnet(
+            image_paths=list(classification_targets.values()),
+            model_name=speciesnet_model,
+            geofence=speciesnet_geofence,
+        )
+        classified = len(classifications)
+    except Exception as exc:
+        classifications = {}
+        candidates_by_path = {}
+        classification_failed = len(extracted_paths)
+        print(f"SpeciesNet classification failed: {exc}")
+        classified = 0
+
+    renamed_paths: dict[Path, Path] = {
+        output_image.resolve(): output_image.resolve() for output_image in extracted_paths
+    }
+
+    if include_label_in_filename:
+        for output_image in extracted_paths:
+            classification_target = classification_targets.get(output_image.resolve(), output_image.resolve())
+            classification = classifications.get(classification_target)
+            if classification is None:
+                continue
+            safe_label = sanitize_label_for_filename(classification.label)
+            score_label = f"{classification.score:.3f}"
+            renamed = output_image.with_name(
+                f"{output_image.stem}_species-{safe_label}_sp{score_label}{output_image.suffix}"
+            )
+            renamed = make_unique_destination(renamed)
+            output_image.rename(renamed)
+            renamed_paths[output_image.resolve()] = renamed.resolve()
+
+    if species_classification_report_path is not None:
+        report_entries: list[dict[str, Any]] = []
+        for output_image in extracted_paths:
+            output_image_resolved = output_image.resolve()
+            classification_target = classification_targets.get(output_image_resolved, output_image_resolved)
+            top_class = classifications.get(classification_target)
+            candidates = candidates_by_path.get(classification_target, [])
+            report_entries.append(
+                {
+                    "preview_image_original": str(output_image_resolved),
+                    "preview_image_final": str(renamed_paths.get(output_image_resolved, output_image_resolved)),
+                    "classification_input_image": str(classification_target),
+                    "used_species_crop": classification_target != output_image_resolved,
+                    "top_classification": None
+                    if top_class is None
+                    else {
+                        "label": top_class.label,
+                        "score": top_class.score,
+                        "raw_class": top_class.raw_class,
+                    },
+                    "candidates": candidates,
+                }
+            )
+
+        report_payload = {
+            "speciesnet_model": speciesnet_model,
+            "speciesnet_geofence": speciesnet_geofence,
+            "speciesnet_use_crops": speciesnet_use_crops,
+            "species_crop_padding": species_crop_padding,
+            "total_entries": len(report_entries),
+            "entries": report_entries,
+        }
+        write_species_classification_report(species_classification_report_path, report_payload)
+        print(f"Wrote species classification report: {species_classification_report_path}")
+
+    return classified, classification_failed
+
+
 def extract_top_frames(
     records: list[TopFrameRecord],
     input_dir: Path,
@@ -302,6 +439,7 @@ def extract_top_frames(
     speciesnet_use_crops: bool = True,
     species_crop_output_dir: Path | None = None,
     species_crop_padding: float = 0.15,
+    species_classification_report_path: Path | None = None,
 ) -> PreviewExtractionStats:
     """Extract top-frame preview images for selected records.
 
@@ -317,6 +455,7 @@ def extract_top_frames(
         speciesnet_use_crops: Use bbox crops for species classification when possible.
         species_crop_output_dir: Destination folder for saved crop images.
         species_crop_padding: Extra normalized padding around bbox.
+        species_classification_report_path: Optional path for detailed classification JSON.
 
     Returns:
         PreviewExtractionStats: Aggregated extraction counters.
@@ -364,31 +503,16 @@ def extract_top_frames(
 
     if classify_with_speciesnet and extracted_paths:
         print("Running SpeciesNet classification on extracted previews")
-        try:
-            classifications, classification_failed = classify_preview_images_with_speciesnet(
-                image_paths=list(classification_targets.values()),
-                model_name=speciesnet_model,
-                geofence=speciesnet_geofence,
-            )
-            classified = len(classifications)
-        except Exception as exc:
-            classifications = {}
-            classification_failed = len(extracted_paths)
-            print(f"SpeciesNet classification failed: {exc}")
-
-        if include_label_in_filename:
-            for output_image in extracted_paths:
-                classification_target = classification_targets.get(output_image.resolve(), output_image.resolve())
-                classification = classifications.get(classification_target)
-                if classification is None:
-                    continue
-                safe_label = sanitize_label_for_filename(classification.label)
-                score_label = f"{classification.score:.3f}"
-                renamed = output_image.with_name(
-                    f"{output_image.stem}_species-{safe_label}_sp{score_label}{output_image.suffix}"
-                )
-                renamed = make_unique_destination(renamed)
-                output_image.rename(renamed)
+        classified, classification_failed = run_speciesnet_postprocessing(
+            extracted_paths=extracted_paths,
+            classification_targets=classification_targets,
+            speciesnet_model=speciesnet_model,
+            speciesnet_geofence=speciesnet_geofence,
+            include_label_in_filename=include_label_in_filename,
+            speciesnet_use_crops=speciesnet_use_crops,
+            species_crop_padding=species_crop_padding,
+            species_classification_report_path=species_classification_report_path,
+        )
 
     return PreviewExtractionStats(
         total_candidates=total,

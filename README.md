@@ -74,12 +74,12 @@ scripts/setup_env.sh --recreate
 
 - If run_folder_mode is none:
   - Sorted videos: output/interesting, output/uninteresting, output/failed
-  - Metadata: output/metadata/megadetector_results.json, output/metadata/summary.json
+  - Metadata: output/metadata/megadetector_results.json, output/metadata/summary.json, output/metadata/species_classifications.json
   - Preview images: output/preview_frames/*.jpg (or preview_output_dir)
   - Species crops: output/preview_species_crops/*.jpg (or species_crop_output_dir)
 - If run_folder_mode is timestamped:
   - Each run is written to output/runs/<run_id>/
   - Sorted videos: output/runs/<run_id>/interesting, uninteresting, failed
-  - Metadata: output/runs/<run_id>/metadata/megadetector_results.json and summary.json
+  - Metadata: output/runs/<run_id>/metadata/megadetector_results.json, summary.json, and species_classifications.json
   - Preview images: output/runs/<run_id>/preview_frames/*.jpg (or preview_output_dir)
   - Species crops: output/runs/<run_id>/preview_species_crops/*.jpg (or species_crop_output_dir)

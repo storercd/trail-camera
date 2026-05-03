@@ -370,6 +370,7 @@ def write_summary(
     preview_output_dir: Path,
     run_output_dir: Path,
     run_id: str | None,
+    species_classification_report_path: Path,
 ) -> None:
     """Write a JSON summary file for the run.
 
@@ -382,6 +383,7 @@ def write_summary(
         preview_output_dir: Resolved output folder for preview frames.
         run_output_dir: Resolved root output folder for this run.
         run_id: Timestamp-based run ID when run_folder_mode is timestamped.
+        species_classification_report_path: Path to detailed species classification report JSON.
     """
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -409,6 +411,7 @@ def write_summary(
         "speciesnet_use_crops": config.speciesnet_use_crops,
         "species_crop_output_dir": str(resolve_preview_output_dir(config.species_crop_output_dir, run_output_dir)),
         "species_crop_padding": config.species_crop_padding,
+        "species_classification_report": str(species_classification_report_path),
         "videos": [decision.__dict__ for decision in decisions],
         "counts": {
             "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
@@ -594,6 +597,7 @@ def extract_preview_frames_for_decisions(
     speciesnet_use_crops: bool,
     species_crop_output_dir: Path,
     species_crop_padding: float,
+    species_classification_report_path: Path,
 ) -> PreviewExtractionStats:
     """Extract preview images for selected decisions.
 
@@ -609,6 +613,7 @@ def extract_preview_frames_for_decisions(
         speciesnet_use_crops: Use MegaDetector bboxes to classify cropped images.
         species_crop_output_dir: Destination folder for saved classification crops.
         species_crop_padding: Extra context around bbox as normalized padding.
+        species_classification_report_path: Output JSON path for full species candidates and scores.
 
     Returns:
         PreviewExtractionStats: Frame extraction summary counters.
@@ -635,6 +640,7 @@ def extract_preview_frames_for_decisions(
         speciesnet_use_crops=speciesnet_use_crops,
         species_crop_output_dir=species_crop_output_dir,
         species_crop_padding=species_crop_padding,
+        species_classification_report_path=species_classification_report_path,
     )
 
 
@@ -684,6 +690,7 @@ def main() -> int:
     preview_stats: PreviewExtractionStats | None = None
     preview_output_dir = resolve_preview_output_dir(config.preview_output_dir, paths.output_dir)
     species_crop_output_dir = resolve_preview_output_dir(config.species_crop_output_dir, paths.output_dir)
+    species_classification_report_path = paths.metadata_dir / "species_classifications.json"
     if config.generate_top_frame_previews:
         print(f"Extracting top-frame previews to {preview_output_dir}")
         if config.classify_previews_with_speciesnet and config.speciesnet_use_crops:
@@ -700,6 +707,7 @@ def main() -> int:
             speciesnet_use_crops=config.speciesnet_use_crops,
             species_crop_output_dir=species_crop_output_dir,
             species_crop_padding=config.species_crop_padding,
+            species_classification_report_path=species_classification_report_path,
         )
         print(
             "Preview extraction complete. "
@@ -722,6 +730,7 @@ def main() -> int:
         preview_output_dir=preview_output_dir,
         run_output_dir=paths.output_dir,
         run_id=paths.run_id,
+        species_classification_report_path=species_classification_report_path,
     )
     print(f"Wrote summary metadata to {paths.summary_path}")
 
