@@ -10,6 +10,43 @@ from pipeline_models import VideoDecision
 from video_clipping import clip_video_by_frame_window
 
 
+def build_clipped_log_line(
+    index: int,
+    total_entries: int,
+    output_relative_path: str,
+    start_frame: int,
+    end_frame: int,
+    frames_written: int,
+    total_source_frames: int,
+    bucket: str,
+) -> str:
+    """Build a human-readable clip status line with coverage details.
+
+    Args:
+        index: Current 1-based video index.
+        total_entries: Total number of entries in this run.
+        output_relative_path: Output path under the destination bucket.
+        start_frame: First frame index written to output.
+        end_frame: Last frame index written to output.
+        frames_written: Number of frames written to the clip.
+        total_source_frames: Total frame count in the source video.
+        bucket: Destination bucket name.
+
+    Returns:
+        str: Formatted status line for logging.
+    """
+    if total_source_frames > 0:
+        kept_pct = (frames_written / total_source_frames) * 100.0
+        coverage_text = f"{frames_written}/{total_source_frames} frames kept ({kept_pct:.1f}%)"
+    else:
+        coverage_text = f"{frames_written} frames kept"
+
+    return (
+        f"[{index}/{total_entries}] Clipped {output_relative_path} "
+        f"frames {start_frame}-{end_frame} ({coverage_text}) -> {bucket}"
+    )
+
+
 def analyze_video_result(
     image_entry: dict[str, Any],
     interesting_categories: set[str],
@@ -191,8 +228,16 @@ def classify_and_sort_videos(
                     if move_files:
                         source.unlink(missing_ok=True)
                     print(
-                        f"[{index}/{total_entries}] Clipped {decision.output_relative_path} "
-                        f"frames {clip_result.start_frame}-{clip_result.end_frame} -> {decision.bucket}"
+                        build_clipped_log_line(
+                            index=index,
+                            total_entries=total_entries,
+                            output_relative_path=decision.output_relative_path,
+                            start_frame=clip_result.start_frame,
+                            end_frame=clip_result.end_frame,
+                            frames_written=clip_result.frames_written,
+                            total_source_frames=clip_result.total_source_frames,
+                            bucket=decision.bucket,
+                        )
                     )
                 else:
                     written_path = copy_or_move(source, destination, move=move_files)
