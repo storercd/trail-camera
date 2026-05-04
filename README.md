@@ -18,7 +18,7 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
 - clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
 - run_folder_mode: Output mode; use none for persistent output or timestamped for output/runs/<run_id>
-- recursive: Recursively scan input directory for videos
+- recursive: No longer has any effect — the pipeline always scans the input directory recursively, including all subdirectories
 - detector_verbose: Enable verbose MegaDetector output while processing
 - generate_html_report: Generate summary.html and browser-playable report_videos sidecars
 - auto_open_html_report: Open summary.html in the default local app after it is generated
@@ -61,6 +61,13 @@ default local browser/app after the file is written.
 When clip_interesting_videos is true, each interesting output video is trimmed to
 the first and last interesting detection frame, expanded by frame_sample on both
 sides (bounded by video start/end).
+
+All output video filenames are date-prefixed using the source file's creation date
+(format: YYYYMMDD-<original_filename>). Folder structure from the input tree is not
+preserved in the output buckets — all files are written directly under the bucket
+root (e.g. output/interesting/20260203-PICT0005.AVI). If two source files from
+different input subfolders would produce the same output name, a numeric suffix is
+appended to the later file (e.g. 20260203-PICT0005_1.AVI) to avoid overwriting.
 
 When SpeciesNet preview classification is enabled, preview image filenames include
 the top predicted species label and confidence score.
