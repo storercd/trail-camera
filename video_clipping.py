@@ -16,6 +16,7 @@ class ClipResult:
     start_frame: int
     end_frame: int
     frames_written: int
+    total_source_frames: int
 
 
 def _codec_for_suffix(suffix: str) -> str:
@@ -120,6 +121,7 @@ def clip_video_by_frame_window(
         start_frame=clip_start,
         end_frame=clip_start + frames_written - 1,
         frames_written=frames_written,
+        total_source_frames=total_frames,
     )
 
 
