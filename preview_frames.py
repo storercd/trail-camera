@@ -184,7 +184,6 @@ def create_species_crop(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     crop_path = output_dir / f"{image_path.stem}_crop{image_path.suffix}"
-    crop_path = make_unique_destination(crop_path)
     if not cv2.imwrite(str(crop_path), crop):
         return None
 
@@ -309,6 +308,8 @@ def process_record_for_preview(
     speciesnet_use_crops: bool,
     species_crop_output_dir: Path | None,
     species_crop_padding: float,
+    preview_output_paths: dict[str, Path] | None = None,
+    species_crop_output_dirs: dict[str, Path] | None = None,
 ) -> tuple[str, Path | None, Path | None, str]:
     """Extract preview image and optional species crop for one record.
 
@@ -323,15 +324,22 @@ def process_record_for_preview(
         return "failed", None, None, f"Failed {record.relative_path}: video not found"
 
     output_image = build_output_path(output_dir, record)
+    if preview_output_paths is not None:
+        mapped_output = preview_output_paths.get(record.relative_path)
+        if mapped_output is not None:
+            output_image = mapped_output
     if not extract_frame(source_video, int(record.top_frame), output_image):
         return "failed", None, None, f"Failed {record.relative_path}: frame extraction error"
 
     classification_target = output_image.resolve()
     if speciesnet_use_crops and species_crop_output_dir is not None:
+        crop_output_dir = species_crop_output_dir
+        if species_crop_output_dirs is not None:
+            crop_output_dir = species_crop_output_dirs.get(record.relative_path, crop_output_dir)
         crop_path = create_species_crop(
             image_path=output_image,
             bbox=record.top_bbox,
-            output_dir=species_crop_output_dir,
+            output_dir=crop_output_dir,
             padding=species_crop_padding,
         )
         if crop_path is not None:
@@ -357,6 +365,9 @@ def run_speciesnet_postprocessing(
 
     Returns:
         tuple[int, int]: classified count and classification failure count.
+
+    Raises:
+        SystemExit: If SpeciesNet is not installed in the active Python environment.
     """
     try:
         classifications, candidates_by_path, classification_failed = classify_preview_images_with_speciesnet(
@@ -365,6 +376,10 @@ def run_speciesnet_postprocessing(
             geofence=speciesnet_geofence,
         )
         classified = len(classifications)
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "Missing required SpeciesNet dependency. Install runtime packages from requirements.txt"
+        ) from exc
     except Exception as exc:
         classifications = {}
         candidates_by_path = {}
@@ -387,7 +402,8 @@ def run_speciesnet_postprocessing(
             renamed = output_image.with_name(
                 f"{output_image.stem}_species-{safe_label}_sp{score_label}{output_image.suffix}"
             )
-            renamed = make_unique_destination(renamed)
+            if renamed.exists():
+                renamed.unlink()
             output_image.rename(renamed)
             renamed_paths[output_image.resolve()] = renamed.resolve()
 
@@ -443,6 +459,8 @@ def extract_top_frames(
     species_crop_output_dir: Path | None = None,
     species_crop_padding: float = 0.15,
     species_classification_report_path: Path | None = None,
+    preview_output_paths: dict[str, Path] | None = None,
+    species_crop_output_dirs: dict[str, Path] | None = None,
 ) -> PreviewExtractionStats:
     """Extract top-frame preview images for selected records.
 
@@ -459,6 +477,8 @@ def extract_top_frames(
         species_crop_output_dir: Destination folder for saved crop images.
         species_crop_padding: Extra normalized padding around bbox.
         species_classification_report_path: Optional path for detailed classification JSON.
+        preview_output_paths: Optional per-video preview output paths keyed by staged relative path.
+        species_crop_output_dirs: Optional per-video crop output dirs keyed by staged relative path.
 
     Returns:
         PreviewExtractionStats: Aggregated extraction counters.
@@ -487,15 +507,17 @@ def extract_top_frames(
             speciesnet_use_crops=speciesnet_use_crops,
             species_crop_output_dir=species_crop_output_dir,
             species_crop_padding=species_crop_padding,
+            preview_output_paths=preview_output_paths,
+            species_crop_output_dirs=species_crop_output_dirs,
         )
 
         if status == "skipped":
             skipped += 1
-            print(f"[{index}/{total}] {message}")
+            print(message)
             continue
         if status == "failed":
             failed += 1
-            print(f"[{index}/{total}] {message}")
+            print(message)
             continue
 
         extracted += 1
@@ -504,7 +526,7 @@ def extract_top_frames(
         extracted_paths.append(output_image)
         classification_targets[output_image.resolve()] = classification_target
         source_paths_by_preview[output_image.resolve()] = record.output_relative_path
-        print(f"[{index}/{total}] {message}")
+        print(message)
 
     if classify_with_speciesnet and extracted_paths:
         print("Running SpeciesNet classification on extracted previews")

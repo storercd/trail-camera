@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,126 @@ VIDEO_EXTENSIONS = {
     ".wmv",
     ".m4v",
 }
+
+
+def build_video_storage_dir(videos_root_dir: Path, video_id: str) -> Path:
+    """Build canonical storage directory for one video ID.
+
+    Uses a two-level shard prefix to keep filesystem fan-out bounded.
+
+    Args:
+        videos_root_dir: Root folder containing canonical per-video folders.
+        video_id: Stable video identifier (expected sha256 hex string).
+
+    Returns:
+        Path: Canonical per-video storage directory.
+    """
+    normalized_video_id = video_id.strip().lower()
+    if len(normalized_video_id) >= 4:
+        return videos_root_dir / normalized_video_id[:2] / normalized_video_id[2:4] / normalized_video_id
+    return videos_root_dir / normalized_video_id
+
+
+def build_canonical_original_path(videos_root_dir: Path, video_id: str, source: Path) -> Path:
+    """Build canonical destination path for a stored original source video.
+
+    Args:
+        videos_root_dir: Root folder containing canonical per-video folders.
+        video_id: Stable video identifier.
+        source: Original source video path.
+
+    Returns:
+        Path: Canonical original video path under the video storage folder.
+    """
+    canonical_dir = build_video_storage_dir(videos_root_dir, video_id)
+    suffix = source.suffix if source.suffix else ".bin"
+    return canonical_dir / f"source{suffix.lower()}"
+
+
+def compute_sha256(file_path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Compute sha256 hex digest for a file.
+
+    Args:
+        file_path: File to hash.
+        chunk_size: Bytes read per iteration.
+
+    Returns:
+        str: Lowercase sha256 hex digest.
+    """
+    digest = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        while True:
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def get_capture_date(source: Path) -> str | None:
+    """Return source capture date in YYYY-MM-DD format when available.
+
+    Args:
+        source: Source video path.
+
+    Returns:
+        str | None: Capture date string, or None if stat cannot be read.
+    """
+    try:
+        stat = source.stat()
+    except OSError:
+        return None
+
+    created_timestamp = getattr(stat, "st_birthtime", stat.st_mtime)
+    return datetime.fromtimestamp(created_timestamp).strftime("%Y-%m-%d")
+
+
+def find_existing_canonical_original_path(videos_root_dir: Path, video_id: str) -> Path | None:
+    """Find an already-stored canonical original file for a video ID.
+
+    Args:
+        videos_root_dir: Root folder containing canonical per-video folders.
+        video_id: Stable video identifier.
+
+    Returns:
+        Path | None: Existing source file path if present.
+    """
+    canonical_dir = build_video_storage_dir(videos_root_dir, video_id)
+    if not canonical_dir.exists():
+        return None
+
+    for candidate in sorted(canonical_dir.glob("source.*")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def persist_canonical_original(
+    videos_root_dir: Path,
+    video_id: str,
+    source: Path,
+) -> Path:
+    """Persist a canonical original source file for the given video ID.
+
+    If the canonical original already exists, this function returns the existing
+    path without rewriting it.
+
+    Args:
+        videos_root_dir: Root folder containing canonical per-video folders.
+        video_id: Stable video identifier.
+        source: Source video file to persist.
+
+    Returns:
+        Path: Canonical original file path.
+    """
+    existing = find_existing_canonical_original_path(videos_root_dir, video_id)
+    if existing is not None:
+        return existing
+
+    destination = build_canonical_original_path(videos_root_dir, video_id, source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
 
 
 def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
