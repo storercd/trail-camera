@@ -79,29 +79,27 @@ Note: this is not meant to be absolutely rigid, but simply to steer the upcoming
 
 ### Phase 5: Dynamic reporting app (first slice)
 
-- [ ] Create local reporting app entrypoint backed by SQLite.
+- [x] Create local reporting app entrypoint backed by SQLite.
 	- New files: `report_app.py` (or `report_app/__init__.py` + routes/views modules)
-- [ ] Implement list page with filters: date range, bucket, species, confidence.
+- [x] Implement list page with filters: date range, bucket, species, confidence.
 	- Target files: `report_app.py` (+ templates/static if split)
-- [ ] Implement sorting and pagination for large datasets.
+- [x] Implement sorting and pagination for large datasets.
 	- Target files: `report_app.py`
-- [ ] Implement per-video detail view with report video, clip, preview, and species crop.
+- [x] Implement per-video detail view with report video, clip, preview, and species crop.
 	- Target files: `report_app.py`
-- [ ] Add `needs reprocess` filter using `pipeline_version` mismatch.
+- [x] Add `needs reprocess` filter using `pipeline_version` mismatch.
 	- Target files: `report_app.py`, `metadata_store.py`
-- [ ] Document run/start instructions for the reporting app.
+- [x] Document run/start instructions for the reporting app.
 	- Target files: `README.md`
 
-### Phase 6: Hardening and migration
+### Phase 6: Hardening and cleanup ✓ COMPLETE
 
-- [ ] Write one-time migration utility from legacy run folders into canonical SQLite-backed layout.
-	- New file: `scripts/migrate_legacy_runs.py`
-- [ ] Validate backward compatibility for current pipeline outputs during transition.
-	- Target files: `process_videos.py`, `reporting.py`
-- [ ] Add integration tests for end-to-end new-only and reprocess flows.
-	- New/target files: `tests/test_pipeline_e2e.py`
-- [ ] Final cleanup: remove deprecated run-folder assumptions and static-report-only paths.
-	- Target files: `pipeline_config.py`, `process_videos.py`, `README.md`
+- [x] Add integration tests for end-to-end new-only, reprocess-existing, and report-only flows.
+	- New/target files: `tests/test_pipeline_e2e.py` (8 tests covering all modes, collision handling, and species persistence)
+- [x] Final cleanup: remove deprecated run-folder assumptions and static-report-only wording/paths.
+	- Target files: Removed unused `write_summary()` function from `reporting.py`
+	- Clarified architecture in `README.md`: canonical per-video storage, SQLite-backed reporting, processing/reporting split
+	- Verified no references to batch-mode code in `pipeline_config.py` or `process_videos.py`
 
 ### Suggested implementation order
 

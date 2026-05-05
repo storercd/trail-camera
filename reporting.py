@@ -16,67 +16,6 @@ if TYPE_CHECKING:
     from preview_frames import PreviewExtractionStats
 
 
-def write_summary(
-    summary_path: Path,
-    decisions: list[VideoDecision],
-    config: AppConfig,
-    config_path: Path,
-    preview_stats: PreviewExtractionStats | None,
-    preview_output_dir: Path,
-    run_output_dir: Path,
-    species_crop_output_dir: Path,
-    species_classification_report_path: Path,
-    metadata_db_path: Path,
-) -> None:
-    """Write a JSON summary file for the run."""
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "config_file": str(config_path.resolve()),
-        "input_dir": str(Path(config.input_dir).resolve()),
-        "output_root_dir": str(Path(config.output_dir).resolve()),
-        "output_dir": str(run_output_dir),
-        "metadata_db_path": str(metadata_db_path),
-        "pipeline_version": config.pipeline_version,
-        "model": config.model,
-        "frame_sample": config.frame_sample,
-        "interesting_threshold": config.interesting_threshold,
-        "interesting_categories": sorted(config.interesting_categories),
-        "move_files": config.move_files,
-        "save_uninteresting_files": config.save_uninteresting_files,
-        "clip_interesting_videos": config.clip_interesting_videos,
-        "recursive": config.recursive,
-        "detector_verbose": config.detector_verbose,
-        "generate_html_report": config.generate_html_report,
-        "auto_open_html_report": config.auto_open_html_report,
-        "preview_output_dir": str(preview_output_dir),
-        "preview_include_uninteresting": config.preview_include_uninteresting,
-        "speciesnet_model": config.speciesnet_model,
-        "speciesnet_geofence": config.speciesnet_geofence,
-        "speciesnet_label_in_filename": config.speciesnet_label_in_filename,
-        "species_crop_output_dir": str(species_crop_output_dir),
-        "species_crop_padding": config.species_crop_padding,
-        "species_classification_report": str(species_classification_report_path),
-        "videos": [decision.__dict__ for decision in decisions],
-        "counts": {
-            "interesting": sum(1 for d in decisions if d.bucket == "interesting"),
-            "uninteresting": sum(1 for d in decisions if d.bucket == "uninteresting"),
-            "failed": sum(1 for d in decisions if d.bucket == "failed"),
-            "total": len(decisions),
-        },
-    }
-    if preview_stats is not None:
-        payload["preview_frames"] = {
-            "total_candidates": preview_stats.total_candidates,
-            "extracted": preview_stats.extracted,
-            "skipped": preview_stats.skipped,
-            "failed": preview_stats.failed,
-            "classified": preview_stats.classified,
-            "classification_failed": preview_stats.classification_failed,
-        }
-    with summary_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-
-
 def write_sqlite_snapshot_export(
     summary_path: Path,
     config: AppConfig,

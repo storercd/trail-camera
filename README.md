@@ -1,6 +1,8 @@
 # Trail Camera Video Sorting
 
-This project runs MegaDetector on videos and sorts them into output buckets based on whether detections are interesting.
+This project runs MegaDetector on videos to detect objects of interest and classifies them using SpeciesNet.
+The pipeline maintains a permanent SQLite catalog of all processed videos with their canonical originals,
+classification results, and derivative artifacts (clips, previews, crops).
 
 ## Configuration
 
@@ -8,15 +10,15 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 
 ### Config keys
 
-- input_dir: Folder containing videos
-- output_dir: Folder to receive sorted videos
+- input_dir: Folder containing videos to process
+- output_dir: Root directory for catalog, canonical video storage, and artifacts
 - metadata_db_path: SQLite metadata catalog location (relative paths resolve under output_dir)
 - pipeline_version: Logical pipeline version stored with processing metadata (default: 0.1.0)
 - model: MegaDetector model identifier or .pt path (default: MDV5A)
 - frame_sample: Process every Nth frame (default: 5)
 - interesting_threshold: Detection confidence threshold for classifying a video as interesting (default: 0.7)
 - interesting_categories: Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
-- move_files: Move files instead of copying them into output buckets
+- move_files: Move source files to canonical storage instead of copying (only effective in new-only mode)
 - save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
 - clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
 - recursive: No longer has any effect — the pipeline always scans the input directory recursively, including all subdirectories
@@ -60,6 +62,12 @@ Reprocess already cataloged videos from canonical stored originals:
 /usr/local/bin/python3 process_videos.py --mode reprocess-existing
 ```
 
+Generate reports only from SQLite + artifact files, without reprocessing videos:
+
+```bash
+/usr/local/bin/python3 process_videos.py --mode report-only
+```
+
 Top-frame preview extraction, SpeciesNet classification, and species-crop
 generation run automatically as part of each processing pass.
 
@@ -74,6 +82,36 @@ card input files.
 Browser-playable report_videos are generated on every processing pass.
 The HTML summary file itself is still controlled by generate_html_report.
 
+## Local Reporting App
+
+Run the local SQLite-backed reporting app:
+
+```bash
+/usr/local/bin/python3 report_app.py --config process_videos.config.yaml
+```
+
+The app starts a local HTTP server, defaulting to `http://127.0.0.1:8000`.
+
+Optional flags:
+
+- `--host`: bind address for the local server
+- `--port`: TCP port (default `8000`)
+- `--debug`: enable Flask debug mode
+
+The reporting app reads only from:
+
+- `output/metadata/catalog.sqlite3`
+- per-video artifact files under `output/videos/<shard>/<shard>/<video_id>/...`
+
+It does not run MegaDetector, SpeciesNet, or any artifact generation.
+
+Current first-slice capabilities:
+
+- list page with filters for date range, bucket, species label, confidence, and needs reprocess
+- sorting by capture date, processed time, species, confidence, and bucket
+- pagination controls for larger catalogs
+- per-video detail page with browser video, native clip, preview image, and species crop
+
 When write_json_exports is true, summary.json is written as a snapshot exported
 from the SQLite metadata catalog. Set write_json_exports to false to skip JSON
 exports while keeping SQLite as the source of truth.
@@ -85,14 +123,15 @@ When clip_interesting_videos is true, each interesting output video is trimmed t
 the first and last interesting detection frame, expanded by frame_sample on both
 sides (bounded by video start/end).
 
-All output video filenames are date-prefixed using the source file's creation date
-(format: YYYYMMDD-<original_filename>). Folder structure from the input tree is not
-preserved in the output buckets — all files are written directly under the bucket
-root (e.g. output/interesting/20260203-PICT0005.AVI). If two source files from
-different input subfolders would produce the same output name, a numeric suffix is
-appended to the later file (e.g. 20260203-PICT0005_1.AVI) to avoid overwriting.
+All videos are stored under a permanent canonical directory keyed by video hash
+(SHA-256), with the structure `output/videos/<shard>/<shard>/<video_id>/`.
+This enables efficient reprocessing without requiring the original input files.
 
-Preview image filenames include top predicted species label and confidence score.
+When multiple source files would produce the same output filename (same basename from
+different dates), the pipeline appends a `__<video_id[:8]>` suffix to avoid collisions
+while maintaining a deterministic, reproducible mapping.
+
+Preview image filenames include the top predicted species label and confidence score.
 SpeciesNet classifies cropped animal regions derived from MegaDetector bounding
 boxes, and the crop images are saved for review.
 
@@ -113,9 +152,8 @@ scripts/setup_env.sh --recreate
 
 ## Outputs
 
-- Sorted videos: output/interesting, output/uninteresting, output/failed
-- Metadata: output/metadata/megadetector_results.json, output/metadata/summary.json, output/metadata/summary.html, output/metadata/species_classifications.json
-- Metadata catalog (SQLite): output/metadata/catalog.sqlite3 (default, configurable via metadata_db_path)
-- Canonical video storage root: output/videos
-- Preview images: output/preview_frames/*.jpg (or preview_output_dir)
-- Species crops: output/preview_species_crops/*.jpg (or species_crop_output_dir)
+- Metadata catalog (SQLite): `output/metadata/catalog.sqlite3` (persistent, expandable with each processing run)
+- Canonical video storage: `output/videos/<shard>/<shard>/<video_id>/` with source, interesting clips, reports, previews, crops
+- Metadata exports: `output/metadata/megadetector_results.json`, `output/metadata/summary.json`, `output/metadata/summary.html`, `output/metadata/species_classifications.json`
+- Preview images: `output/preview_frames/*.jpg` (or configured preview_output_dir)
+- Species crops: `output/preview_species_crops/*.jpg` (or configured species_crop_output_dir)
