@@ -7,12 +7,15 @@ import pytest
 
 from metadata_store import (
     ProcessingStateRecord,
+    SpeciesClassificationRecord,
     VideoCatalogRecord,
+    delete_species_classification_record,
     fetch_catalog_snapshot,
     get_stored_original_paths,
     get_stored_original_records,
     initialize_metadata_store,
     sync_artifact_path,
+    upsert_species_classification_record,
     upsert_processing_state_record,
     upsert_video_record,
     video_exists,
@@ -38,6 +41,7 @@ def test_initialize_metadata_store_should_create_expected_tables(tmp_path: Path)
     assert _table_exists(db_path, "videos")
     assert _table_exists(db_path, "processing_state")
     assert _table_exists(db_path, "artifacts")
+    assert _table_exists(db_path, "species_classifications")
 
 
 def test_initialize_metadata_store_should_fail_when_migration_missing(tmp_path: Path) -> None:
@@ -222,4 +226,42 @@ def test_fetch_catalog_snapshot_should_return_table_payloads(tmp_path: Path) -> 
     assert len(snapshot["videos"]) == 1
     assert len(snapshot["processing_state"]) == 1
     assert len(snapshot["artifacts"]) == 1
+    assert len(snapshot["species_classifications"]) == 0
     assert snapshot["videos"][0]["video_id"] == "snap001"
+
+
+def test_species_classification_record_should_upsert_and_delete(tmp_path: Path) -> None:
+    """Persist and remove species classification records keyed by video ID."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    upsert_video_record(
+        db_path,
+        VideoCatalogRecord(
+            video_id="species001",
+            original_filename="PICT0600.AVI",
+            capture_date="2026-05-05",
+            filesize_bytes=100,
+            source_ext=".avi",
+            stored_original_path="/tmp/videos/sp/ec/species001/source.avi",
+        ),
+    )
+
+    upsert_species_classification_record(
+        db_path=db_path,
+        record=SpeciesClassificationRecord(
+            video_id="species001",
+            top_label="domestic dog",
+            top_score=0.648,
+            top_raw_class="animal;canid;domestic dog",
+            candidates_json='[{"label":"domestic dog","score":0.648}]',
+        ),
+    )
+
+    snapshot = fetch_catalog_snapshot(db_path)
+    assert len(snapshot["species_classifications"]) == 1
+    assert snapshot["species_classifications"][0]["video_id"] == "species001"
+
+    delete_species_classification_record(db_path, "species001")
+
+    snapshot_after_delete = fetch_catalog_snapshot(db_path)
+    assert len(snapshot_after_delete["species_classifications"]) == 0

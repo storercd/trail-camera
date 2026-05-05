@@ -305,3 +305,131 @@ def test_record_processing_results_should_record_direct_canonical_artifacts(
     assert (canonical_dir / "report.mp4").exists()
     assert (canonical_dir / "preview.jpg").exists()
     assert (canonical_dir / "species_crop.jpg").exists()
+
+
+def test_record_processing_results_should_map_video_ids_by_output_path_when_relative_paths_collide(
+    tmp_path: Path,
+) -> None:
+    """Persist artifact records to the correct video when staged relative paths collide."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    canonical_root = tmp_path / "videos"
+    for video_id in ("vid-001", "vid-002"):
+        canonical_source = build_video_storage_dir(canonical_root, video_id) / "source.avi"
+        canonical_source.parent.mkdir(parents=True, exist_ok=True)
+        canonical_source.write_bytes(b"source")
+        upsert_video_record(
+            db_path,
+            VideoCatalogRecord(
+                video_id=video_id,
+                original_filename="source.avi",
+                capture_date="2026-05-05",
+                filesize_bytes=6,
+                source_ext=".avi",
+                stored_original_path=str(canonical_source),
+            ),
+        )
+
+    decision1 = VideoDecision(
+        relative_path="source.avi",
+        output_relative_path="20260505-source.avi",
+        bucket="interesting",
+        top_confidence=0.9,
+        top_category="1",
+        top_frame=10,
+        top_bbox=[0.1, 0.1, 0.5, 0.5],
+        first_interesting_frame=5,
+        last_interesting_frame=20,
+        num_detections=1,
+        failure=None,
+    )
+    decision2 = VideoDecision(
+        relative_path="source.avi",
+        output_relative_path="20260505-source.avi__vid002",
+        bucket="interesting",
+        top_confidence=0.8,
+        top_category="1",
+        top_frame=11,
+        top_bbox=[0.2, 0.2, 0.4, 0.4],
+        first_interesting_frame=6,
+        last_interesting_frame=21,
+        num_detections=1,
+        failure=None,
+    )
+
+    vid1_dir = build_video_storage_dir(canonical_root, "vid-001")
+    vid2_dir = build_video_storage_dir(canonical_root, "vid-002")
+    vid1_bucketed = vid1_dir / "interesting.avi"
+    vid1_report = vid1_dir / "report.mp4"
+    vid1_preview = vid1_dir / "preview.jpg"
+    vid1_crop = vid1_dir / "preview_crop.jpg"
+    vid2_bucketed = vid2_dir / "interesting.avi"
+    vid2_report = vid2_dir / "report.mp4"
+    vid2_preview = vid2_dir / "preview.jpg"
+    vid2_crop = vid2_dir / "preview_crop.jpg"
+
+    for artifact in (
+        vid1_bucketed,
+        vid1_report,
+        vid1_preview,
+        vid1_crop,
+        vid2_bucketed,
+        vid2_report,
+        vid2_preview,
+        vid2_crop,
+    ):
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(b"artifact")
+
+    record_processing_results(
+        decisions=[decision1, decision2],
+        staged_video_ids={"source.avi": "vid-002"},
+        metadata_db_path=db_path,
+        pipeline_version="0.1.1",
+        mode="reprocess-existing",
+        save_uninteresting_files=False,
+        bucketed_video_paths={
+            decision1.output_relative_path: vid1_bucketed,
+            decision2.output_relative_path: vid2_bucketed,
+        },
+        report_video_paths={
+            decision1.output_relative_path: vid1_report,
+            decision2.output_relative_path: vid2_report,
+        },
+        preview_image_paths={
+            decision1.output_relative_path: vid1_preview,
+            decision2.output_relative_path: vid2_preview,
+        },
+        species_crop_paths={
+            decision1.output_relative_path: vid1_crop,
+            decision2.output_relative_path: vid2_crop,
+        },
+        video_ids_by_output_path={
+            decision1.output_relative_path: "vid-001",
+            decision2.output_relative_path: "vid-002",
+        },
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        vid1_rows = connection.execute(
+            "SELECT artifact_type, path FROM artifacts WHERE video_id=? ORDER BY artifact_type",
+            ("vid-001",),
+        ).fetchall()
+        vid2_rows = connection.execute(
+            "SELECT artifact_type, path FROM artifacts WHERE video_id=? ORDER BY artifact_type",
+            ("vid-002",),
+        ).fetchall()
+
+    assert dict(vid1_rows) == {
+        "bucketed_video": str(vid1_bucketed),
+        "preview_image": str(vid1_preview),
+        "report_video": str(vid1_report),
+        "species_crop": str(vid1_crop),
+    }
+    assert dict(vid2_rows) == {
+        "bucketed_video": str(vid2_bucketed),
+        "preview_image": str(vid2_preview),
+        "report_video": str(vid2_report),
+        "species_crop": str(vid2_crop),
+    }

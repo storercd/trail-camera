@@ -107,6 +107,7 @@ def write_sqlite_snapshot_export(
             "videos": len(snapshot["videos"]),
             "processing_state": len(snapshot["processing_state"]),
             "artifacts": len(snapshot["artifacts"]),
+            "species_classifications": len(snapshot["species_classifications"]),
         },
     }
     with summary_path.open("w", encoding="utf-8") as handle:
@@ -418,6 +419,333 @@ def write_html_summary(
         <div>
             <span class=\"meta\">Interesting videos: {len(interesting_decisions)}</span>
             <span class=\"meta\">Species report: {html_escape(species_classification_report_path.name)}</span>
+        </div>
+        <section class=\"panel\">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Video</th>
+                        <th>Top ID</th>
+                        <th>Clipped Video</th>
+                        <th>Crop</th>
+                        <th>Preview</th>
+                        <th>Candidates</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(row_fragments) or '<tr><td colspan="6">No interesting videos found.</td></tr>'}
+                </tbody>
+            </table>
+        </section>
+    </main>
+</body>
+</html>
+"""
+
+    with html_summary_path.open("w", encoding="utf-8") as handle:
+        handle.write(page)
+
+
+def write_html_summary_from_catalog(
+    html_summary_path: Path,
+    metadata_db_path: Path,
+) -> None:
+    """Write an HTML summary report from SQLite catalog + artifact files only."""
+    html_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = fetch_catalog_snapshot(metadata_db_path)
+
+    videos_by_id = {
+        str(row.get("video_id")): row
+        for row in snapshot.get("videos", [])
+        if row.get("video_id")
+    }
+    species_by_id = {
+        str(row.get("video_id")): row
+        for row in snapshot.get("species_classifications", [])
+        if row.get("video_id")
+    }
+
+    artifacts_by_video: dict[str, dict[str, Path]] = {}
+    for row in snapshot.get("artifacts", []):
+        video_id = row.get("video_id")
+        artifact_type = row.get("artifact_type")
+        artifact_path = row.get("path")
+        if not isinstance(video_id, str) or not isinstance(artifact_type, str):
+            continue
+        if not isinstance(artifact_path, str) or not artifact_path:
+            continue
+        artifacts_by_video.setdefault(video_id, {})[artifact_type] = Path(artifact_path)
+
+    processing_rows = [
+        row
+        for row in snapshot.get("processing_state", [])
+        if isinstance(row.get("video_id"), str) and row.get("bucket") == "interesting"
+    ]
+
+    base_name_counts: dict[str, int] = {}
+    for row in processing_rows:
+        video_id = str(row["video_id"])
+        video_meta = videos_by_id.get(video_id, {})
+        original = str(video_meta.get("original_filename") or video_id)
+        capture_date = video_meta.get("capture_date")
+        base_name = f"{capture_date}-{original}" if capture_date else original
+        base_name_counts[base_name] = base_name_counts.get(base_name, 0) + 1
+
+    row_fragments: list[str] = []
+    seen_base_names: dict[str, int] = {}
+    for row in processing_rows:
+        video_id = str(row["video_id"])
+        video_meta = videos_by_id.get(video_id, {})
+        original = str(video_meta.get("original_filename") or video_id)
+        capture_date = video_meta.get("capture_date")
+        base_name = f"{capture_date}-{original}" if capture_date else original
+        seen_index = seen_base_names.get(base_name, 0)
+        seen_base_names[base_name] = seen_index + 1
+        if base_name_counts.get(base_name, 0) > 1 and seen_index > 0:
+            display_name = f"{base_name}__{video_id[:8]}"
+        else:
+            display_name = base_name
+
+        species_row = species_by_id.get(video_id, {})
+        top_label = html_escape(species_row.get("top_label") or "unknown")
+        try:
+            top_score = float(species_row.get("top_score") or 0.0)
+        except (TypeError, ValueError):
+            top_score = 0.0
+
+        raw_candidates = species_row.get("candidates_json")
+        candidates: list[dict[str, Any]] = []
+        if isinstance(raw_candidates, str) and raw_candidates:
+            try:
+                loaded_candidates = json.loads(raw_candidates)
+                if isinstance(loaded_candidates, list):
+                    candidates = [c for c in loaded_candidates if isinstance(c, dict)]
+            except json.JSONDecodeError:
+                candidates = []
+
+        artifact_map = artifacts_by_video.get(video_id, {})
+        native_video_path = artifact_map.get("bucketed_video")
+        web_video_path = artifact_map.get("report_video")
+        preview_path = artifact_map.get("preview_image")
+        crop_path = artifact_map.get("species_crop")
+
+        native_video_href = (
+            html_escape(relpath_from(html_summary_path.parent, native_video_path))
+            if native_video_path is not None and native_video_path.exists()
+            else ""
+        )
+        web_video_href = (
+            html_escape(relpath_from(html_summary_path.parent, web_video_path))
+            if web_video_path is not None and web_video_path.exists()
+            else ""
+        )
+        preview_href = (
+            html_escape(relpath_from(html_summary_path.parent, preview_path))
+            if preview_path is not None and preview_path.exists()
+            else ""
+        )
+        crop_href = (
+            html_escape(relpath_from(html_summary_path.parent, crop_path))
+            if crop_path is not None and crop_path.exists()
+            else ""
+        )
+
+        escaped_display_name = html_escape(display_name)
+        candidates_html = render_candidate_list(candidates)
+        row_fragments.append(
+            "".join(
+                [
+                    "<tr>",
+                    f"<td>{escaped_display_name}</td>",
+                    f"<td>{top_label}<br><small>{top_score:.3f}</small></td>",
+                    "<td>",
+                    (
+                        "".join(
+                            [
+                                '<div class="media-stack">',
+                                f'<video controls preload="metadata" src="{web_video_href}"></video>',
+                                '<div class="link-row">',
+                                f'<a href="{web_video_href}" target="_blank">Open browser video</a>',
+                                f'<a href="{native_video_href}" target="_blank">Open native clip</a>',
+                                "</div>",
+                                "</div>",
+                            ]
+                        )
+                        if web_video_href and native_video_href
+                        else (
+                            f'<a href="{native_video_href}" target="_blank">Open native clip</a>'
+                            if native_video_href
+                            else "n/a"
+                        )
+                    ),
+                    "</td>",
+                    (
+                        "".join(
+                            [
+                                '<td><div class="media-stack">',
+                                (
+                                    f'<a href="{crop_href}" target="_blank">'
+                                    f'<img class="thumb" src="{crop_href}" '
+                                    f'alt="Species crop for {escaped_display_name}"></a>'
+                                ),
+                                f'<a href="{crop_href}" target="_blank">species crop</a>',
+                                "</div></td>",
+                            ]
+                        )
+                        if crop_href
+                        else "<td>n/a</td>"
+                    ),
+                    (
+                        "".join(
+                            [
+                                '<td><div class="media-stack">',
+                                (
+                                    f'<a href="{preview_href}" target="_blank">'
+                                    f'<img class="thumb" src="{preview_href}" '
+                                    f'alt="Preview image for {escaped_display_name}"></a>'
+                                ),
+                                f'<a href="{preview_href}" target="_blank">preview image</a>',
+                                "</div></td>",
+                            ]
+                        )
+                        if preview_href
+                        else "<td>n/a</td>"
+                    ),
+                    f"<td><ul>{candidates_html}</ul></td>",
+                    "</tr>",
+                ]
+            )
+        )
+
+    page = f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+    <title>Trail Camera Summary</title>
+    <style>
+        :root {{
+            color-scheme: light;
+            --bg: #f4efe6;
+            --panel: #fffaf2;
+            --ink: #1f1c17;
+            --muted: #6f665b;
+            --line: #d8cdbd;
+            --accent: #2e6f40;
+            --accent-soft: #e3f0e6;
+        }}
+        body {{
+            margin: 0;
+            font-family: Georgia, \"Iowan Old Style\", serif;
+            background: radial-gradient(circle at top, #fff9ef 0%, var(--bg) 58%);
+            color: var(--ink);
+        }}
+        main {{
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }}
+        h1 {{
+            margin: 0 0 8px;
+            font-size: 2.4rem;
+        }}
+        p {{
+            color: var(--muted);
+            margin: 0 0 24px;
+        }}
+        .panel {{
+            background: color-mix(in srgb, var(--panel) 94%, white);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 18px 44px rgba(44, 36, 20, 0.08);
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        th, td {{
+            padding: 14px 16px;
+            vertical-align: top;
+            border-bottom: 1px solid var(--line);
+            text-align: left;
+        }}
+        th {{
+            background: #efe5d5;
+            font-size: 0.92rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }}
+        tr:nth-child(even) td {{
+            background: rgba(255, 255, 255, 0.45);
+        }}
+        a {{
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }}
+        a:hover {{
+            text-decoration: underline;
+        }}
+        video, .thumb {{
+            width: 100%;
+            max-width: 240px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: #000;
+            display: block;
+        }}
+        ul {{
+            margin: 0;
+            padding-left: 18px;
+        }}
+        li span {{
+            color: var(--muted);
+        }}
+        .media-stack {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .link-row {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }}
+        .meta {{
+            display: inline-block;
+            margin: 0 10px 10px 0;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 0.95rem;
+        }}
+        @media (max-width: 900px) {{
+            table, thead, tbody, th, td, tr {{
+                display: block;
+            }}
+            thead {{
+                display: none;
+            }}
+            tr {{
+                border-bottom: 1px solid var(--line);
+            }}
+            td {{
+                border-bottom: none;
+                padding-top: 8px;
+                padding-bottom: 8px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Trail Camera Summary</h1>
+        <p>Interesting detections with clipped videos, best-frame previews, crop images, and SpeciesNet candidates.</p>
+        <div>
+            <span class=\"meta\">Interesting videos: {len(processing_rows)}</span>
+            <span class=\"meta\">Species source: sqlite catalog</span>
         </div>
         <section class=\"panel\">
             <table>

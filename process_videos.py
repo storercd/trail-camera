@@ -9,7 +9,12 @@ from typing import Any
 from classification import classify_and_sort_videos, compute_bucket_counts
 from detector_runner import load_results, run_detector
 from file_ops import validate_and_find_videos
-from metadata_store import initialize_metadata_store
+from metadata_store import (
+    SpeciesClassificationRecord,
+    delete_species_classification_record,
+    initialize_metadata_store,
+    upsert_species_classification_record,
+)
 from pipeline_config import (
     DEFAULT_CONFIG_PATH,
     build_run_paths,
@@ -35,7 +40,7 @@ from processing_modes import (
 from reporting import (
     generate_report_videos,
     open_file_in_default_app,
-    write_html_summary,
+    write_html_summary_from_catalog,
     write_sqlite_snapshot_export,
 )
 
@@ -63,10 +68,70 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="new-only",
-        choices=("new-only", "reprocess-existing"),
-        help="Processing mode: new-only or reprocess-existing (default: new-only)",
+        choices=("new-only", "reprocess-existing", "report-only"),
+        help=(
+            "Processing mode: new-only, reprocess-existing, or report-only "
+            "(default: new-only)"
+        ),
     )
     return parser.parse_args()
+
+
+def sync_species_classifications_to_catalog(
+    species_classification_report_path: Path,
+    metadata_db_path: Path,
+    video_ids_by_output_path: dict[str, str],
+) -> None:
+    """Persist species classifications from merged JSON report into SQLite catalog."""
+    if not species_classification_report_path.exists():
+        for video_id in video_ids_by_output_path.values():
+            delete_species_classification_record(metadata_db_path, video_id)
+        return
+
+    try:
+        with species_classification_report_path.open("r", encoding="utf-8") as handle:
+            report_payload = json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    entries_by_video_id: dict[str, dict[str, Any]] = {}
+    for entry in report_payload.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        output_relative_path = entry.get("source_relative_path")
+        if not isinstance(output_relative_path, str) or not output_relative_path:
+            continue
+        video_id = video_ids_by_output_path.get(output_relative_path)
+        if video_id is None:
+            continue
+        entries_by_video_id[video_id] = entry
+
+    for video_id in video_ids_by_output_path.values():
+        entry = entries_by_video_id.get(video_id)
+        if entry is None:
+            delete_species_classification_record(metadata_db_path, video_id)
+            continue
+
+        top = entry.get("top_classification") or {}
+        top_label = top.get("label") if isinstance(top, dict) else None
+        top_raw_class = top.get("raw_class") if isinstance(top, dict) else None
+        try:
+            top_score = float(top.get("score")) if isinstance(top, dict) and top.get("score") is not None else None
+        except (TypeError, ValueError):
+            top_score = None
+
+        raw_candidates = entry.get("candidates")
+        candidates = raw_candidates if isinstance(raw_candidates, list) else []
+        upsert_species_classification_record(
+            db_path=metadata_db_path,
+            record=SpeciesClassificationRecord(
+                video_id=video_id,
+                top_label=str(top_label) if top_label is not None else None,
+                top_score=top_score,
+                top_raw_class=str(top_raw_class) if top_raw_class is not None else None,
+                candidates_json=json.dumps(candidates),
+            ),
+        )
 
 
 def extract_preview_frames_for_decisions(
@@ -313,10 +378,41 @@ def main() -> int:
     print(f"Pipeline version: {config.pipeline_version}")
     print(f"Metadata database: {paths.metadata_db_path}")
     print(f"Processing mode: {args.mode}")
-    print("Processing model: per-video streaming")
+    if args.mode != "report-only":
+        print("Processing model: per-video streaming")
 
     paths.canonical_videos_dir.mkdir(parents=True, exist_ok=True)
     initialize_metadata_store(paths.metadata_db_path)
+
+    if args.mode == "report-only":
+        if config.write_json_exports:
+            write_sqlite_snapshot_export(
+                summary_path=paths.summary_path,
+                config=config,
+                config_path=paths.config_path,
+                run_output_dir=paths.output_dir,
+                metadata_db_path=paths.metadata_db_path,
+            )
+            print(f"Wrote summary metadata to {paths.summary_path}")
+        else:
+            print("JSON exports disabled by config")
+
+        if config.generate_html_report:
+            write_html_summary_from_catalog(
+                html_summary_path=paths.html_summary_path,
+                metadata_db_path=paths.metadata_db_path,
+            )
+            print(f"Wrote HTML summary to {paths.html_summary_path}")
+            if config.auto_open_html_report:
+                if open_file_in_default_app(paths.html_summary_path):
+                    print(f"Opened HTML summary in default app: {paths.html_summary_path}")
+                else:
+                    print(f"Failed to open HTML summary automatically: {paths.html_summary_path}")
+        else:
+            print("HTML summary disabled by config")
+
+        print("Report generation complete from sqlite catalog and artifact files.")
+        return 0
 
     processing_sources: list[ProcessingSource]
     if args.mode == "new-only":
@@ -501,6 +597,13 @@ def main() -> int:
         video_ids_by_output_path=video_ids_by_output_path,
     )
 
+    # Persist species classifications in SQLite so report generation is decoupled from processing.
+    sync_species_classifications_to_catalog(
+        species_classification_report_path=species_classification_report_path,
+        metadata_db_path=paths.metadata_db_path,
+        video_ids_by_output_path=video_ids_by_output_path,
+    )
+
     print(
         "Preview extraction complete. "
         f"candidates={aggregated_preview_stats.total_candidates}, "
@@ -524,15 +627,9 @@ def main() -> int:
         print("JSON exports disabled by config")
 
     if config.generate_html_report:
-        write_html_summary(
+        write_html_summary_from_catalog(
             html_summary_path=paths.html_summary_path,
-            decisions=all_decisions,
-            run_output_dir=paths.output_dir,
-            species_classification_report_path=species_classification_report_path,
-            report_video_paths=all_report_video_paths,
-            bucketed_video_paths=bucketed_video_paths_final,
-            preview_image_paths=all_preview_paths,
-            species_crop_paths=all_crop_paths,
+            metadata_db_path=paths.metadata_db_path,
         )
         print(f"Wrote HTML summary to {paths.html_summary_path}")
         if config.auto_open_html_report:
