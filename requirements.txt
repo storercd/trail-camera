@@ -13,3 +13,4 @@ Pillow==11.2.1
 
 # Test dependencies
 pytest==8.4.2
+Flask==3.1.1

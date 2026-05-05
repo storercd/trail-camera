@@ -373,3 +373,196 @@ def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
         "artifacts": artifacts,
         "species_classifications": species_classifications,
     }
+
+
+def list_catalog_videos(
+    db_path: Path,
+    current_pipeline_version: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    bucket: str | None = None,
+    species: str | None = None,
+    min_confidence: float | None = None,
+    max_confidence: float | None = None,
+    needs_reprocess: bool | None = None,
+    sort_by: str = "capture_date",
+    sort_dir: str = "desc",
+    page: int = 1,
+    page_size: int = 25,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return paginated catalog rows for the reporting app list view."""
+    sort_columns = {
+        "capture_date": "COALESCE(v.capture_date, '')",
+        "processed_at": "COALESCE(ps.processed_at, '')",
+        "species": "LOWER(COALESCE(sc.top_label, ''))",
+        "confidence": "COALESCE(sc.top_score, ps.top_confidence, -1)",
+        "bucket": "LOWER(COALESCE(ps.bucket, ''))",
+    }
+    order_column = sort_columns.get(sort_by, sort_columns["capture_date"])
+    order_direction = "ASC" if str(sort_dir).lower() == "asc" else "DESC"
+
+    filters: list[str] = []
+    params: list[Any] = []
+    if date_from:
+        filters.append("v.capture_date >= ?")
+        params.append(date_from)
+    if date_to:
+        filters.append("v.capture_date <= ?")
+        params.append(date_to)
+    if bucket:
+        filters.append("ps.bucket = ?")
+        params.append(bucket)
+    if species:
+        filters.append("LOWER(COALESCE(sc.top_label, '')) LIKE ?")
+        params.append(f"%{species.lower()}%")
+    if min_confidence is not None:
+        filters.append("COALESCE(sc.top_score, ps.top_confidence) >= ?")
+        params.append(min_confidence)
+    if max_confidence is not None:
+        filters.append("COALESCE(sc.top_score, ps.top_confidence) <= ?")
+        params.append(max_confidence)
+    if needs_reprocess is True:
+        filters.append("(ps.pipeline_version IS NULL OR ps.pipeline_version != ?)")
+        params.append(current_pipeline_version)
+    elif needs_reprocess is False:
+        filters.append("ps.pipeline_version = ?")
+        params.append(current_pipeline_version)
+
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+    safe_page = max(1, int(page))
+    safe_page_size = max(1, min(int(page_size), 100))
+    offset = (safe_page - 1) * safe_page_size
+
+    count_sql = f"""
+        SELECT COUNT(DISTINCT v.video_id)
+        FROM videos v
+        LEFT JOIN processing_state ps ON ps.video_id = v.video_id
+        LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        {where_clause}
+    """
+
+    rows_sql = f"""
+        SELECT
+            v.video_id,
+            v.original_filename,
+            v.capture_date,
+            v.filesize_bytes,
+            v.stored_original_path,
+            ps.pipeline_version,
+            ps.processed_at,
+            ps.mode,
+            ps.bucket,
+            ps.top_confidence,
+            ps.top_category,
+            ps.top_frame,
+            ps.status,
+            sc.top_label,
+            sc.top_score,
+            sc.top_raw_class,
+            sc.candidates_json,
+            MAX(CASE WHEN a.artifact_type = 'bucketed_video' THEN a.path END) AS bucketed_video_path,
+            MAX(CASE WHEN a.artifact_type = 'report_video' THEN a.path END) AS report_video_path,
+            MAX(CASE WHEN a.artifact_type = 'preview_image' THEN a.path END) AS preview_image_path,
+            MAX(CASE WHEN a.artifact_type = 'species_crop' THEN a.path END) AS species_crop_path
+        FROM videos v
+        LEFT JOIN processing_state ps ON ps.video_id = v.video_id
+        LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN artifacts a ON a.video_id = v.video_id
+        {where_clause}
+        GROUP BY
+            v.video_id,
+            v.original_filename,
+            v.capture_date,
+            v.filesize_bytes,
+            v.stored_original_path,
+            ps.pipeline_version,
+            ps.processed_at,
+            ps.mode,
+            ps.bucket,
+            ps.top_confidence,
+            ps.top_category,
+            ps.top_frame,
+            ps.status,
+            sc.top_label,
+            sc.top_score,
+            sc.top_raw_class,
+            sc.candidates_json
+        ORDER BY {order_column} {order_direction}, v.video_id ASC
+        LIMIT ? OFFSET ?
+    """
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        total_count = int(connection.execute(count_sql, params).fetchone()[0])
+        rows = [
+            dict(row)
+            for row in connection.execute(rows_sql, [*params, safe_page_size, offset]).fetchall()
+        ]
+
+    return rows, total_count
+
+
+def get_catalog_video_detail(
+    db_path: Path,
+    video_id: str,
+    current_pipeline_version: str,
+) -> dict[str, Any] | None:
+    """Return one video detail row for the reporting app."""
+    # Use a direct detail query so list ordering/filtering logic stays separate.
+    detail_sql = """
+        SELECT
+            v.video_id,
+            v.original_filename,
+            v.capture_date,
+            v.filesize_bytes,
+            v.stored_original_path,
+            ps.pipeline_version,
+            ps.processed_at,
+            ps.mode,
+            ps.bucket,
+            ps.top_confidence,
+            ps.top_category,
+            ps.top_frame,
+            ps.status,
+            sc.top_label,
+            sc.top_score,
+            sc.top_raw_class,
+            sc.candidates_json,
+            MAX(CASE WHEN a.artifact_type = 'bucketed_video' THEN a.path END) AS bucketed_video_path,
+            MAX(CASE WHEN a.artifact_type = 'report_video' THEN a.path END) AS report_video_path,
+            MAX(CASE WHEN a.artifact_type = 'preview_image' THEN a.path END) AS preview_image_path,
+            MAX(CASE WHEN a.artifact_type = 'species_crop' THEN a.path END) AS species_crop_path
+        FROM videos v
+        LEFT JOIN processing_state ps ON ps.video_id = v.video_id
+        LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN artifacts a ON a.video_id = v.video_id
+        WHERE v.video_id = ?
+        GROUP BY
+            v.video_id,
+            v.original_filename,
+            v.capture_date,
+            v.filesize_bytes,
+            v.stored_original_path,
+            ps.pipeline_version,
+            ps.processed_at,
+            ps.mode,
+            ps.bucket,
+            ps.top_confidence,
+            ps.top_category,
+            ps.top_frame,
+            ps.status,
+            sc.top_label,
+            sc.top_score,
+            sc.top_raw_class,
+            sc.candidates_json
+    """
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(detail_sql, (video_id,)).fetchone()
+    if row is None:
+        return None
+
+    payload = dict(row)
+    payload["needs_reprocess"] = payload.get("pipeline_version") != current_pipeline_version
+    return payload
