@@ -6,9 +6,13 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import cv2
+
+
+SPECIESNET_CLASSIFICATION_LOCK = Lock()
 
 
 @dataclass
@@ -351,11 +355,13 @@ def run_speciesnet_postprocessing(
         SystemExit: If SpeciesNet is not installed in the active Python environment.
     """
     try:
-        classifications, candidates_by_path, classification_failed = classify_preview_images_with_speciesnet(
-            image_paths=list(classification_targets.values()),
-            model_name=speciesnet_model,
-            geofence=speciesnet_geofence,
-        )
+        # SpeciesNet internals are not thread-safe; serialize inference across workers.
+        with SPECIESNET_CLASSIFICATION_LOCK:
+            classifications, candidates_by_path, classification_failed = classify_preview_images_with_speciesnet(
+                image_paths=list(classification_targets.values()),
+                model_name=speciesnet_model,
+                geofence=speciesnet_geofence,
+            )
         classified = len(classifications)
     except ModuleNotFoundError as exc:
         raise SystemExit(

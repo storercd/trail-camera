@@ -65,6 +65,18 @@ def relpath_from(base_dir: Path, target: Path) -> str:
         return str(target.resolve())
 
 
+def media_href_from(base_dir: Path, target: Path | None) -> str:
+    """Build a cache-busted relative href for media assets when available."""
+    if target is None or not target.exists():
+        return ""
+    relative = relpath_from(base_dir, target)
+    try:
+        version = int(target.stat().st_mtime_ns)
+    except OSError:
+        return html_escape(relative)
+    return html_escape(f"{relative}?v={version}")
+
+
 def render_candidate_list(candidates: list[dict[str, Any]], limit: int = 5) -> str:
     """Render top candidate species labels as HTML list items.
 
@@ -420,6 +432,13 @@ def write_html_summary_from_catalog(
         for row in snapshot.get("processing_state", [])
         if isinstance(row.get("video_id"), str) and row.get("bucket") == "interesting"
     ]
+    processing_rows.sort(
+        key=lambda row: (
+            str(videos_by_id.get(str(row.get("video_id")), {}).get("capture_date") or ""),
+            str(videos_by_id.get(str(row.get("video_id")), {}).get("original_filename") or ""),
+            str(row.get("video_id") or ""),
+        )
+    )
 
     base_name_counts: dict[str, int] = {}
     for row in processing_rows:
@@ -473,21 +492,9 @@ def write_html_summary_from_catalog(
             if native_video_path is not None and native_video_path.exists()
             else ""
         )
-        web_video_href = (
-            html_escape(relpath_from(html_summary_path.parent, web_video_path))
-            if web_video_path is not None and web_video_path.exists()
-            else ""
-        )
-        preview_href = (
-            html_escape(relpath_from(html_summary_path.parent, preview_path))
-            if preview_path is not None and preview_path.exists()
-            else ""
-        )
-        crop_href = (
-            html_escape(relpath_from(html_summary_path.parent, crop_path))
-            if crop_path is not None and crop_path.exists()
-            else ""
-        )
+        web_video_href = media_href_from(html_summary_path.parent, web_video_path)
+        preview_href = media_href_from(html_summary_path.parent, preview_path)
+        crop_href = media_href_from(html_summary_path.parent, crop_path)
 
         escaped_display_name = html_escape(display_name)
         candidates_html = render_candidate_list(candidates)

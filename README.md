@@ -68,6 +68,26 @@ Generate reports only from SQLite + artifact files, without reprocessing videos:
 /usr/local/bin/python3 process_videos.py --mode report-only
 ```
 
+### Parallelization
+
+By default, videos are processed sequentially (one at a time). To process multiple videos in parallel, use the `--num-workers` parameter:
+
+```bash
+# Process 4 videos in parallel
+/usr/local/bin/python3 process_videos.py --mode new-only --num-workers 4
+
+# Process with as many workers as CPU cores
+/usr/local/bin/python3 process_videos.py --mode reprocess-existing --num-workers 8
+```
+
+Each worker processes a complete video (detect → classify → generate clips/previews → species classification) independently. Results are then accumulated and written to the SQLite catalog atomically, maintaining the same collision detection and artifact recording behavior as the sequential path.
+
+**Performance notes**:
+- Default: `--num-workers 1` (sequential, single-threaded)
+- Recommended start: match number of CPU cores or slightly less to avoid resource exhaustion
+- MegaDetector and SpeciesNet are thread-safe (PyTorch is thread-compatible)
+- Database writes remain deterministic and collision-safe regardless of parallelization
+
 Top-frame preview extraction, SpeciesNet classification, and species-crop
 generation run automatically as part of each processing pass.
 
