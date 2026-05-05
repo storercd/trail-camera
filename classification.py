@@ -7,7 +7,6 @@ from typing import Any
 
 from file_ops import build_dated_relative_output_path, copy_or_move, make_unique_destination
 from pipeline_models import VideoDecision
-from video_clipping import clip_video_by_frame_window
 
 
 def build_clipped_log_line(
@@ -157,6 +156,38 @@ def collect_interesting_detection_stats(
     return best, interesting_count, first_interesting_frame, last_interesting_frame
 
 
+def resolve_bucket_destination(
+    output_dir: Path,
+    decision: VideoDecision,
+    bucket_output_paths: dict[str, Path] | None,
+) -> Path:
+    """Resolve destination path for a bucketed video output.
+
+    Returns:
+        Path: Destination path for the current decision.
+    """
+    destination = output_dir / decision.bucket / decision.output_relative_path
+    if bucket_output_paths is None:
+        return destination
+
+    mapped_destination = bucket_output_paths.get(decision.relative_path)
+    if mapped_destination is None:
+        return destination
+    return mapped_destination
+
+
+def maybe_update_output_relative_path(
+    decision: VideoDecision,
+    written_path: Path,
+    bucket_root: Path,
+    bucket_output_paths: dict[str, Path] | None,
+) -> None:
+    """Update output-relative path only for bucket-root writes."""
+    if bucket_output_paths is not None:
+        return
+    decision.output_relative_path = str(written_path.relative_to(bucket_root))
+
+
 def classify_and_sort_videos(
     image_entries: list[dict[str, Any]],
     input_dir: Path,
@@ -167,6 +198,7 @@ def classify_and_sort_videos(
     save_uninteresting_files: bool,
     clip_interesting_videos: bool,
     clip_buffer_frames: int,
+    bucket_output_paths: dict[str, Path] | None = None,
 ) -> list[VideoDecision]:
     """Classify video results and copy/move original files into output buckets.
 
@@ -180,6 +212,8 @@ def classify_and_sort_videos(
         save_uninteresting_files: If False, skip writing uninteresting videos.
         clip_interesting_videos: If True, clip interesting videos to detection window.
         clip_buffer_frames: Buffer to add before first and after last interesting frame.
+        bucket_output_paths: Optional mapping from input-relative path to exact
+            bucketed destination path.
 
     Returns:
         list[VideoDecision]: Per-video decisions used for reporting.
@@ -199,14 +233,18 @@ def classify_and_sort_videos(
 
         if not should_write_file:
             print(
-                f"[{index}/{total_entries}] Skipped {decision.relative_path}: "
+                f"Skipped {decision.relative_path}: "
                 "uninteresting output disabled"
             )
             decisions.append(decision)
             continue
 
         if source.exists():
-            destination = output_dir / decision.bucket / decision.output_relative_path
+            destination = resolve_bucket_destination(
+                output_dir=output_dir,
+                decision=decision,
+                bucket_output_paths=bucket_output_paths,
+            )
             bucket_root = output_dir / decision.bucket
             if (
                 clip_interesting_videos
@@ -214,8 +252,10 @@ def classify_and_sort_videos(
                 and decision.first_interesting_frame is not None
                 and decision.last_interesting_frame is not None
             ):
+                from video_clipping import clip_video_by_frame_window
+
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                clip_destination = make_unique_destination(destination)
+                clip_destination = destination
                 clip_result = clip_video_by_frame_window(
                     source_video=source,
                     output_video=clip_destination,
@@ -224,24 +264,35 @@ def classify_and_sort_videos(
                     buffer_frames=clip_buffer_frames,
                 )
                 if clip_result is not None:
-                    decision.output_relative_path = str(clip_destination.relative_to(bucket_root))
+                    maybe_update_output_relative_path(
+                        decision=decision,
+                        written_path=clip_destination,
+                        bucket_root=bucket_root,
+                        bucket_output_paths=bucket_output_paths,
+                    )
                     if move_files:
                         source.unlink(missing_ok=True)
-                    print(
-                        build_clipped_log_line(
-                            index=index,
-                            total_entries=total_entries,
-                            output_relative_path=decision.output_relative_path,
-                            start_frame=clip_result.start_frame,
-                            end_frame=clip_result.end_frame,
-                            frames_written=clip_result.frames_written,
-                            total_source_frames=clip_result.total_source_frames,
-                            bucket=decision.bucket,
-                        )
+                    clipped_msg = build_clipped_log_line(
+                        index=1,
+                        total_entries=1,
+                        output_relative_path=decision.output_relative_path,
+                        start_frame=clip_result.start_frame,
+                        end_frame=clip_result.end_frame,
+                        frames_written=clip_result.frames_written,
+                        total_source_frames=clip_result.total_source_frames,
+                        bucket=decision.bucket,
                     )
+                    # Remove [1/1] prefix for per-video streaming mode
+                    clipped_msg = clipped_msg.replace("[1/1] ", "")
+                    print(clipped_msg)
                 else:
                     written_path = copy_or_move(source, destination, move=move_files)
-                    decision.output_relative_path = str(written_path.relative_to(bucket_root))
+                    maybe_update_output_relative_path(
+                        decision=decision,
+                        written_path=written_path,
+                        bucket_root=bucket_root,
+                        bucket_output_paths=bucket_output_paths,
+                    )
                     action = "Moved" if move_files else "Copied"
                     print(
                         f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket} "
@@ -249,7 +300,12 @@ def classify_and_sort_videos(
                     )
             else:
                 written_path = copy_or_move(source, destination, move=move_files)
-                decision.output_relative_path = str(written_path.relative_to(bucket_root))
+                maybe_update_output_relative_path(
+                    decision=decision,
+                    written_path=written_path,
+                    bucket_root=bucket_root,
+                    bucket_output_paths=bucket_output_paths,
+                )
                 action = "Moved" if move_files else "Copied"
                 print(f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket}")
         else:

@@ -28,53 +28,53 @@ Note: this is not meant to be absolutely rigid, but simply to steer the upcoming
 
 ### Phase 1: Core schema, versioning, and storage layout
 
-- [ ] Add global pipeline version constant and config defaults.
+- [x] Add global pipeline version constant and config defaults.
 	- Target files: `pipeline_models.py`, `pipeline_config.py`, `process_videos.config.yaml`
-- [ ] Define canonical output layout for per-video storage keyed by `video_id`.
+- [x] Define canonical output layout for per-video storage keyed by `video_id`.
 	- Target files: `pipeline_config.py`, `file_ops.py`
-- [ ] Add SQLite database bootstrap and migrations for core tables.
+- [x] Add SQLite database bootstrap and migrations for core tables.
 	- New files: `metadata_store.py`, `migrations/001_initial.sql`
 	- Tables: `videos`, `processing_state`, `artifacts`
-- [ ] Add database path/config wiring.
+- [x] Add database path/config wiring.
 	- Target files: `pipeline_models.py`, `pipeline_config.py`, `process_videos.config.yaml`
 
 ### Phase 2: Ingestion and identity pipeline
 
-- [ ] Compute `sha256` for each discovered input video and use as `video_id`.
+- [x] Compute `sha256` for each discovered input video and use as `video_id`.
 	- Target files: `file_ops.py`, `process_videos.py`
-- [ ] Persist canonical original video file into output storage under `video_id`.
+- [x] Persist canonical original video file into output storage under `video_id`.
 	- Target files: `classification.py` or new `storage_layout.py`, `process_videos.py`
-- [ ] Upsert `videos` table rows on import/first-seen and refresh immutable metadata checks.
+- [x] Upsert `videos` table rows on import/first-seen and refresh immutable metadata checks.
 	- Target files: `metadata_store.py`, `process_videos.py`
-- [ ] Add tests for hash identity and canonical original placement.
+- [x] Add tests for hash identity and canonical original placement.
 	- New/target files: `tests/test_file_ops.py`, `tests/test_storage_layout.py`
 
 ### Phase 3: Processing modes and reprocessing behavior
 
-- [ ] Add CLI switch for processing mode: `new-only` and `reprocess-existing`.
+- [x] Add CLI switch for processing mode: `new-only` and `reprocess-existing`.
 	- Target files: `process_videos.py`, `README.md`
-- [ ] Implement `new-only` query path against SQLite (`video_id` not present in `videos`).
+- [x] Implement `new-only` query path against SQLite (`video_id` not present in `videos`).
 	- Target files: `metadata_store.py`, `process_videos.py`
-- [ ] Implement `reprocess-existing` path that reads canonical stored originals.
+- [x] Implement `reprocess-existing` path that reads canonical stored originals.
 	- Target files: `metadata_store.py`, `process_videos.py`
-- [ ] Record `pipeline_version`, `processed_at`, and mode into `processing_state`.
+- [x] Record `pipeline_version`, `processed_at`, and mode into `processing_state`.
 	- Target files: `metadata_store.py`, `process_videos.py`
-- [ ] Add stale artifact cleanup policy for reprocessing.
+- [x] Add stale artifact cleanup policy for reprocessing.
 	- Target files: `metadata_store.py`, `process_videos.py`, `file_ops.py`
-- [ ] Add tests for mode behavior and in-place replacement rules.
+- [x] Add tests for mode behavior and in-place replacement rules.
 	- New/target files: `tests/test_processing_modes.py`, `tests/test_artifact_cleanup.py`
 
 ### Phase 4: Artifact generation refactor (always-on)
 
-- [ ] Ensure report videos are always generated independently of report UI generation.
+- [x] Ensure report videos are always generated independently of report UI generation.
 	- Target files: `reporting.py`, `process_videos.py`
-- [ ] Ensure preview frames and species crops are always generated.
+- [x] Ensure preview frames and species crops are always generated.
 	- Target files: `preview_frames.py`, `process_videos.py`
-- [ ] Register all produced artifacts in `artifacts` table with upsert semantics.
+- [x] Register all produced artifacts in `artifacts` table with upsert semantics.
 	- Target files: `metadata_store.py`, `process_videos.py`, `reporting.py`, `preview_frames.py`
-- [ ] Remove obsolete artifact toggles from config and docs.
+- [x] Remove obsolete artifact toggles from config and docs.
 	- Target files: `pipeline_models.py`, `pipeline_config.py`, `process_videos.config.yaml`, `README.md`
-- [ ] Keep compatibility JSON exports as optional snapshots from SQLite.
+- [x] Keep compatibility JSON exports as optional snapshots from SQLite.
 	- Target files: `reporting.py`, `process_videos.py`
 
 ### Phase 5: Dynamic reporting app (first slice)

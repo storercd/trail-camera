@@ -7,11 +7,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from metadata_store import fetch_catalog_snapshot
 from pipeline_models import AppConfig, VideoDecision
-from preview_frames import PreviewExtractionStats
-from video_clipping import transcode_video_for_web
+
+if TYPE_CHECKING:
+    from preview_frames import PreviewExtractionStats
 
 
 def write_summary(
@@ -22,9 +24,9 @@ def write_summary(
     preview_stats: PreviewExtractionStats | None,
     preview_output_dir: Path,
     run_output_dir: Path,
-    run_id: str | None,
     species_crop_output_dir: Path,
     species_classification_report_path: Path,
+    metadata_db_path: Path,
 ) -> None:
     """Write a JSON summary file for the run."""
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -33,8 +35,8 @@ def write_summary(
         "input_dir": str(Path(config.input_dir).resolve()),
         "output_root_dir": str(Path(config.output_dir).resolve()),
         "output_dir": str(run_output_dir),
-        "run_folder_mode": config.run_folder_mode,
-        "run_id": run_id,
+        "metadata_db_path": str(metadata_db_path),
+        "pipeline_version": config.pipeline_version,
         "model": config.model,
         "frame_sample": config.frame_sample,
         "interesting_threshold": config.interesting_threshold,
@@ -46,14 +48,11 @@ def write_summary(
         "detector_verbose": config.detector_verbose,
         "generate_html_report": config.generate_html_report,
         "auto_open_html_report": config.auto_open_html_report,
-        "generate_top_frame_previews": config.generate_top_frame_previews,
         "preview_output_dir": str(preview_output_dir),
         "preview_include_uninteresting": config.preview_include_uninteresting,
-        "classify_previews_with_speciesnet": config.classify_previews_with_speciesnet,
         "speciesnet_model": config.speciesnet_model,
         "speciesnet_geofence": config.speciesnet_geofence,
         "speciesnet_label_in_filename": config.speciesnet_label_in_filename,
-        "speciesnet_use_crops": config.speciesnet_use_crops,
         "species_crop_output_dir": str(species_crop_output_dir),
         "species_crop_padding": config.species_crop_padding,
         "species_classification_report": str(species_classification_report_path),
@@ -74,6 +73,42 @@ def write_summary(
             "classified": preview_stats.classified,
             "classification_failed": preview_stats.classification_failed,
         }
+    with summary_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def write_sqlite_snapshot_export(
+    summary_path: Path,
+    config: AppConfig,
+    config_path: Path,
+    run_output_dir: Path,
+    metadata_db_path: Path,
+) -> None:
+    """Write compatibility summary JSON as a snapshot exported from SQLite.
+
+    Args:
+        summary_path: Destination JSON path.
+        config: Runtime configuration values.
+        config_path: Config file path used for the run.
+        run_output_dir: Current run output directory.
+        metadata_db_path: SQLite metadata catalog path.
+    """
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = fetch_catalog_snapshot(metadata_db_path)
+    payload = {
+        "config_file": str(config_path.resolve()),
+        "input_dir": str(Path(config.input_dir).resolve()),
+        "output_root_dir": str(Path(config.output_dir).resolve()),
+        "output_dir": str(run_output_dir),
+        "metadata_db_path": str(metadata_db_path),
+        "pipeline_version": config.pipeline_version,
+        "snapshot": snapshot,
+        "counts": {
+            "videos": len(snapshot["videos"]),
+            "processing_state": len(snapshot["processing_state"]),
+            "artifacts": len(snapshot["artifacts"]),
+        },
+    }
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
@@ -129,9 +164,17 @@ def write_html_summary(
     decisions: list[VideoDecision],
     run_output_dir: Path,
     species_classification_report_path: Path,
+    report_video_paths: dict[str, Path] | None = None,
+    bucketed_video_paths: dict[str, Path] | None = None,
+    preview_image_paths: dict[str, Path] | None = None,
+    species_crop_paths: dict[str, Path] | None = None,
 ) -> None:
     """Write an HTML summary report for interesting detections."""
     html_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_report_videos = report_video_paths or {}
+    resolved_bucketed_videos = bucketed_video_paths or {}
+    resolved_preview_images = preview_image_paths or {}
+    resolved_species_crops = species_crop_paths or {}
 
     species_entries: dict[str, dict[str, Any]] = {}
     if species_classification_report_path.exists():
@@ -143,7 +186,6 @@ def write_html_summary(
                 species_entries[relative_path] = entry
 
     interesting_decisions = [d for d in decisions if d.bucket == "interesting"]
-    web_video_dir = run_output_dir / "report_videos"
     row_fragments: list[str] = []
     for decision in interesting_decisions:
         species_entry = species_entries.get(decision.output_relative_path, {})
@@ -155,24 +197,31 @@ def write_html_summary(
         except (TypeError, ValueError):
             top_score = 0.0
 
-        video_path = run_output_dir / decision.bucket / decision.output_relative_path
-        web_video_path = web_video_dir / f"{Path(decision.output_relative_path).stem}.mp4"
+        video_path = resolved_bucketed_videos.get(
+            decision.output_relative_path,
+            run_output_dir / decision.bucket / decision.output_relative_path,
+        )
         web_video_href = ""
-        if video_path.exists():
-            transcoded_path = transcode_video_for_web(video_path, web_video_path)
-            if transcoded_path is not None:
-                web_video_href = html_escape(
-                    relpath_from(html_summary_path.parent, transcoded_path)
-                )
-        preview_path = species_entry.get("preview_image_final")
-        crop_path = species_entry.get("classification_input_image")
+        transcoded_path = resolved_report_videos.get(decision.output_relative_path)
+        if transcoded_path is not None and transcoded_path.exists():
+            web_video_href = html_escape(relpath_from(html_summary_path.parent, transcoded_path))
+        preview_path = resolved_preview_images.get(decision.output_relative_path)
+        if preview_path is None:
+            raw_preview_path = species_entry.get("preview_image_final")
+            preview_path = Path(str(raw_preview_path)) if raw_preview_path else None
+
+        crop_path = resolved_species_crops.get(decision.output_relative_path)
+        if crop_path is None:
+            raw_crop_path = species_entry.get("classification_input_image")
+            crop_path = Path(str(raw_crop_path)) if raw_crop_path else None
+
         preview_href = (
-            html_escape(relpath_from(html_summary_path.parent, Path(str(preview_path))))
+            html_escape(relpath_from(html_summary_path.parent, preview_path))
             if preview_path
             else ""
         )
         crop_href = (
-            html_escape(relpath_from(html_summary_path.parent, Path(str(crop_path))))
+            html_escape(relpath_from(html_summary_path.parent, crop_path))
             if crop_path
             else ""
         )
@@ -394,6 +443,54 @@ def write_html_summary(
 
     with html_summary_path.open("w", encoding="utf-8") as handle:
         handle.write(page)
+
+
+def generate_report_videos(
+    decisions: list[VideoDecision],
+    run_output_dir: Path,
+    transcode_fn: Any | None = None,
+    source_video_paths: dict[str, Path] | None = None,
+    output_video_paths: dict[str, Path] | None = None,
+) -> dict[str, Path]:
+    """Generate browser-playable report videos for interesting decisions.
+
+    Args:
+        decisions: Per-video processing decisions.
+        run_output_dir: Root output directory for current run.
+        transcode_fn: Optional transcode callable used for testing.
+        source_video_paths: Optional source clip paths keyed by output-relative path.
+        output_video_paths: Optional output report paths keyed by output-relative path.
+
+    Returns:
+        dict[str, Path]: Mapping from decision output-relative path to generated report video path.
+    """
+    generated_paths: dict[str, Path] = {}
+    web_video_dir = run_output_dir / "report_videos"
+    if transcode_fn is None:
+        from video_clipping import transcode_video_for_web
+
+        resolved_transcode = transcode_video_for_web
+    else:
+        resolved_transcode = transcode_fn
+
+    for decision in decisions:
+        if decision.bucket != "interesting":
+            continue
+
+        source_video_path = run_output_dir / decision.bucket / decision.output_relative_path
+        if source_video_paths is not None:
+            source_video_path = source_video_paths.get(decision.relative_path, source_video_path)
+        if not source_video_path.exists():
+            continue
+
+        web_video_path = web_video_dir / f"{Path(decision.output_relative_path).stem}.mp4"
+        if output_video_paths is not None:
+            web_video_path = output_video_paths.get(decision.output_relative_path, web_video_path)
+        transcoded_path = resolved_transcode(source_video_path, web_video_path)
+        if transcoded_path is not None:
+            generated_paths[decision.output_relative_path] = transcoded_path
+
+    return generated_paths
 
 
 def open_file_in_default_app(path: Path) -> bool:

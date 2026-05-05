@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_PIPELINE_VERSION = "0.1.0"
+
 
 @dataclass
 class VideoDecision:
@@ -29,6 +31,8 @@ class AppConfig:
 
     input_dir: str
     output_dir: str
+    metadata_db_path: str
+    pipeline_version: str
     model: str
     frame_sample: int
     interesting_threshold: float
@@ -36,19 +40,16 @@ class AppConfig:
     move_files: bool
     save_uninteresting_files: bool
     clip_interesting_videos: bool
-    run_folder_mode: str
     recursive: bool
     detector_verbose: bool
     generate_html_report: bool
     auto_open_html_report: bool
-    generate_top_frame_previews: bool
+    write_json_exports: bool
     preview_output_dir: str
     preview_include_uninteresting: bool
-    classify_previews_with_speciesnet: bool
     speciesnet_model: str
     speciesnet_geofence: bool
     speciesnet_label_in_filename: bool
-    speciesnet_use_crops: bool
     species_crop_output_dir: str
     species_crop_padding: float
 
@@ -61,8 +62,9 @@ class RunPaths:
     input_dir: Path
     output_root_dir: Path
     output_dir: Path
-    run_id: str | None
+    canonical_videos_dir: Path
     metadata_dir: Path
+    metadata_db_path: Path
     md_results_path: Path
     summary_path: Path
     html_summary_path: Path

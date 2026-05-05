@@ -4,6 +4,12 @@ input_dir: input
 # Folder to receive sorted videos
 output_dir: output
 
+# SQLite catalog path (relative paths resolve under output_dir)
+metadata_db_path: metadata/catalog.sqlite3
+
+# Logical pipeline version written to metadata for reprocessing decisions
+pipeline_version: 0.1.0
+
 # MegaDetector model identifier or .pt path (default: MDV5A)
 model: MDV5A
 
@@ -28,32 +34,26 @@ save_uninteresting_files: false
 # Clip interesting videos to [first,last] interesting frames, buffered by frame_sample
 clip_interesting_videos: true
 
-# Output mode: none (single persistent output) or timestamped (output/runs/<run_id>)
-run_folder_mode: timestamped
-
 # Recursively scan input directory for videos
 recursive: false
 
 # Enable verbose MegaDetector output while processing
 detector_verbose: false
 
-# Generate summary.html and browser-playable report_videos sidecars
+# Generate summary.html report file
 generate_html_report: true
 
 # Open summary.html automatically in the default browser/app after generation
 auto_open_html_report: true
 
-# Extract top-frame preview images as part of the main pipeline
-generate_top_frame_previews: true
+# Write compatibility JSON exports from SQLite snapshots
+write_json_exports: true
 
 # Output folder for extracted top-frame preview images (relative to current run output)
 preview_output_dir: preview_frames
 
 # Include uninteresting bucket entries when extracting previews
 preview_include_uninteresting: false
-
-# Run SpeciesNet classification on extracted preview images
-classify_previews_with_speciesnet: true
 
 # SpeciesNet model identifier; leave empty to use SpeciesNet default
 speciesnet_model: ""
@@ -63,9 +63,6 @@ speciesnet_geofence: false
 
 # Add top species label and score to preview image filenames
 speciesnet_label_in_filename: true
-
-# Use MegaDetector bbox crops (instead of full preview frame) for species classification
-speciesnet_use_crops: true
 
 # Output folder for saved species classification crops (relative to run output)
 species_crop_output_dir: preview_species_crops
