@@ -35,6 +35,17 @@ class ProcessingStateRecord:
     status: str
 
 
+@dataclass
+class SpeciesClassificationRecord:
+    """Stored SpeciesNet classification payload for one canonical video."""
+
+    video_id: str
+    top_label: str | None
+    top_score: float | None
+    top_raw_class: str | None
+    candidates_json: str
+
+
 def initialize_metadata_store(db_path: Path, migrations_dir: Path | None = None) -> None:
     """Create metadata database and apply required bootstrap migrations.
 
@@ -56,6 +67,20 @@ def initialize_metadata_store(db_path: Path, migrations_dir: Path | None = None)
         with initial_schema_path.open("r", encoding="utf-8") as handle:
             schema_sql = handle.read()
         connection.executescript(schema_sql)
+        # Forward-compatible migration for repositories with existing catalogs.
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS species_classifications (
+                video_id TEXT PRIMARY KEY,
+                top_label TEXT,
+                top_score REAL,
+                top_raw_class TEXT,
+                candidates_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+            )
+            """
+        )
         connection.commit()
 
 
@@ -271,6 +296,52 @@ def sync_artifact_path(
         connection.commit()
 
 
+def upsert_species_classification_record(
+    db_path: Path,
+    record: SpeciesClassificationRecord,
+) -> None:
+    """Insert or update SpeciesNet classification metadata for one video."""
+    now_utc = datetime.now(UTC).isoformat()
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO species_classifications (
+                video_id,
+                top_label,
+                top_score,
+                top_raw_class,
+                candidates_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id) DO UPDATE SET
+                top_label=excluded.top_label,
+                top_score=excluded.top_score,
+                top_raw_class=excluded.top_raw_class,
+                candidates_json=excluded.candidates_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                record.video_id,
+                record.top_label,
+                record.top_score,
+                record.top_raw_class,
+                record.candidates_json,
+                now_utc,
+            ),
+        )
+        connection.commit()
+
+
+def delete_species_classification_record(db_path: Path, video_id: str) -> None:
+    """Delete SpeciesNet classification metadata for one video."""
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "DELETE FROM species_classifications WHERE video_id=?",
+            (video_id,),
+        )
+        connection.commit()
+
+
 def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
     """Fetch full catalog tables as JSON-serializable dictionaries.
 
@@ -289,9 +360,16 @@ def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
             for row in connection.execute("SELECT * FROM processing_state ORDER BY processed_at ASC")
         ]
         artifacts = [dict(row) for row in connection.execute("SELECT * FROM artifacts ORDER BY updated_at ASC")]
+        species_classifications = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM species_classifications ORDER BY updated_at ASC"
+            )
+        ]
 
     return {
         "videos": videos,
         "processing_state": processing_state,
         "artifacts": artifacts,
+        "species_classifications": species_classifications,
     }

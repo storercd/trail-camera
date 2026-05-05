@@ -44,25 +44,6 @@ class SpeciesClassification:
     raw_class: str
 
 
-def make_unique_destination(dest: Path) -> Path:
-    """Generate a unique destination path when a file already exists.
-
-    Returns:
-        Path: A path that does not currently exist.
-    """
-    if not dest.exists():
-        return dest
-
-    stem = dest.stem
-    suffix = dest.suffix
-    index = 1
-    while True:
-        candidate = dest.with_name(f"{stem}_{index}{suffix}")
-        if not candidate.exists():
-            return candidate
-        index += 1
-
-
 def sanitize_label_for_filename(label: str) -> str:
     """Create a filesystem-safe, compact label segment for filenames.
 

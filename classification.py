@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from file_ops import build_dated_relative_output_path, copy_or_move, make_unique_destination
+from file_ops import build_dated_relative_output_path, copy_or_move
 from pipeline_models import VideoDecision
 
 
