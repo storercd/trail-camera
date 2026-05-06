@@ -178,7 +178,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
         )
         if video is None:
             abort(404)
-        path_key = f"{artifact_type}_path"
+        path_key = "stored_original_path" if artifact_type == "source_video" else f"{artifact_type}_path"
         raw_path = video.get(path_key)
         if not isinstance(raw_path, str) or not raw_path:
             abort(404)

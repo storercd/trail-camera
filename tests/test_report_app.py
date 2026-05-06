@@ -136,12 +136,20 @@ def test_report_app_should_render_filtered_list_and_detail(tmp_path: Path) -> No
     detail_response = client.get("/video/aaa11111")
     assert detail_response.status_code == 200
     detail_body = detail_response.get_data(as_text=True)
-    assert "Open Native Clip" in detail_body
+    assert "Open Original Camera Video" in detail_body
+    assert "Open Clipped Original-Format Video" in detail_body
+    assert "Open Browser-Compatible MP4" in detail_body
+    assert "Open Top Detection Frame Image" in detail_body
+    assert "Open Species Crop Image" in detail_body
     assert "backup" in detail_body
 
     artifact_response = client.get("/artifact/aaa11111/preview_image")
     assert artifact_response.status_code == 200
     assert artifact_response.data == b"artifact"
+
+    source_response = client.get("/artifact/aaa11111/source_video")
+    assert source_response.status_code == 200
+    assert source_response.data == b"artifact"
 
 
 def test_report_app_should_default_to_interesting_bucket(tmp_path: Path) -> None:

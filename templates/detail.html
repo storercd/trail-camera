@@ -107,10 +107,11 @@
 
         <section class="panel">
             <div class="artifact-links">
-                {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Native Clip</a>{% endif %}
-                {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser Video</a>{% endif %}
-                {% if video.preview_image_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" target="_blank">Open Preview</a>{% endif %}
-                {% if video.species_crop_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" target="_blank">Open Species Crop</a>{% endif %}
+                {% if video.stored_original_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='source_video') }}" target="_blank">Open Original Camera Video</a>{% endif %}
+                {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Clipped Original-Format Video</a>{% endif %}
+                {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser-Compatible MP4</a>{% endif %}
+                {% if video.preview_image_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" target="_blank">Open Top Detection Frame Image</a>{% endif %}
+                {% if video.species_crop_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" target="_blank">Open Species Crop Image</a>{% endif %}
             </div>
             <div class="kv">
                 <div><strong>Video ID</strong>{{ video.video_id }}</div>
@@ -124,22 +125,22 @@
 
         <section class="panel media-grid">
             <section>
-                <h2>Browser Video</h2>
+                <h2>Browser-Compatible MP4</h2>
                 {% if video.report_video_path %}
                 <video controls preload="metadata" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}"></video>
                 {% else %}<p>No browser-ready video.</p>{% endif %}
             </section>
             <section>
-                <h2>Preview</h2>
+                <h2>Top Detection Frame Image</h2>
                 {% if video.preview_image_path %}
-                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" alt="Preview image">
-                {% else %}<p>No preview image.</p>{% endif %}
+                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" alt="Top detection frame image">
+                {% else %}<p>No top detection frame image.</p>{% endif %}
             </section>
             <section>
-                <h2>Species Crop</h2>
+                <h2>Species Crop Image</h2>
                 {% if video.species_crop_path %}
-                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" alt="Species crop">
-                {% else %}<p>No species crop.</p>{% endif %}
+                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" alt="Species crop image">
+                {% else %}<p>No species crop image.</p>{% endif %}
             </section>
         </section>
 
