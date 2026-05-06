@@ -116,6 +116,8 @@ def _create_minimal_config(workspace: dict[str, Any]) -> AppConfig:
         speciesnet_label_in_filename=True,
         species_crop_output_dir="preview_species_crops",
         species_crop_padding=0.15,
+        capture_date_source="filesystem",
+        camera_date_profile=None,
     )
 
 

@@ -52,6 +52,8 @@ class AppConfig:
     speciesnet_label_in_filename: bool
     species_crop_output_dir: str
     species_crop_padding: float
+    capture_date_source: str
+    camera_date_profile: dict[str, object] | None
 
 
 @dataclass

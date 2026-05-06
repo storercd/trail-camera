@@ -49,6 +49,8 @@ def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Pat
         speciesnet_label_in_filename=True,
         species_crop_output_dir="preview_species_crops",
         species_crop_padding=0.15,
+        capture_date_source="filesystem",
+        camera_date_profile=None,
     )
     config_path = tmp_path / "config.yaml"
     config_path.write_text("input_dir: input\noutput_dir: output\n", encoding="utf-8")

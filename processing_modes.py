@@ -39,6 +39,7 @@ def ingest_videos_into_catalog(
     videos: list[Path],
     canonical_videos_dir: Path,
     metadata_db_path: Path,
+    camera_date_profile: dict[str, object] | None = None,
 ) -> tuple[int, int, list[ProcessingSource]]:
     """Compute IDs, persist canonical originals, and upsert catalog rows.
 
@@ -46,6 +47,7 @@ def ingest_videos_into_catalog(
         videos: Source videos discovered for this run.
         canonical_videos_dir: Root directory for canonical per-video storage.
         metadata_db_path: SQLite metadata catalog path.
+        camera_date_profile: Optional camera overlay OCR profile.
 
     Returns:
         tuple[int, int, list[ProcessingSource]]: Ingested count, newly persisted originals,
@@ -56,6 +58,7 @@ def ingest_videos_into_catalog(
     for source in videos:
         video_id = compute_sha256(source)
         was_known_video_id = video_exists(metadata_db_path, video_id)
+        stored_original_path: Path | None = None
         if was_known_video_id:
             # Keep uninteresting videos out of canonical storage to avoid re-growing disk usage.
             current_bucket = get_processing_bucket(metadata_db_path, video_id)
@@ -64,18 +67,20 @@ def ingest_videos_into_catalog(
 
             existing_original = find_existing_canonical_original_path(canonical_videos_dir, video_id)
             if existing_original is not None:
-                continue
+                stored_original_path = existing_original
 
-        had_existing_original = (
-            find_existing_canonical_original_path(canonical_videos_dir, video_id) is not None
-        )
-        stored_original_path = persist_canonical_original(
-            videos_root_dir=canonical_videos_dir,
-            video_id=video_id,
-            source=source,
-        )
-        if not had_existing_original:
-            newly_persisted += 1
+        if stored_original_path is None:
+            had_existing_original = (
+                find_existing_canonical_original_path(canonical_videos_dir, video_id) is not None
+            )
+            stored_original_path = persist_canonical_original(
+                videos_root_dir=canonical_videos_dir,
+                video_id=video_id,
+                source=source,
+            )
+            if not had_existing_original:
+                newly_persisted += 1
+
         if not was_known_video_id:
             newly_discovered_sources.append(ProcessingSource(source=source, video_id=video_id))
 
@@ -85,7 +90,7 @@ def ingest_videos_into_catalog(
             record=VideoCatalogRecord(
                 video_id=video_id,
                 original_filename=source.name,
-                capture_date=get_capture_date(source),
+                capture_date=get_capture_date(source, camera_date_profile=camera_date_profile),
                 filesize_bytes=int(stat.st_size),
                 source_ext=source.suffix.lower(),
                 stored_original_path=str(stored_original_path),

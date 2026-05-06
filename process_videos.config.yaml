@@ -69,3 +69,15 @@ species_crop_output_dir: preview_species_crops
 
 # Normalized padding around bbox when generating species crops
 species_crop_padding: 0.15
+
+# Capture-date strategy: filesystem or camera_overlay
+capture_date_source: camera_overlay
+
+# Camera overlay OCR profile for timestamp extraction.
+# roi is normalized [x0, y0, x1, y1] and tuned for this camera's bottom-left timestamp.
+camera_date_profile:
+  roi: [0.0, 0.66, 0.62, 1.0]
+  date_regex: '(\d{2})-(\d{2})-(\d{4})'
+  date_order: mdy
+  sample_frames: 5
+  ocr_psm: 6

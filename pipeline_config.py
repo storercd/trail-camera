@@ -59,6 +59,11 @@ def load_config(config_path: Path) -> AppConfig:
         speciesnet_label_in_filename = bool(raw_config.get("speciesnet_label_in_filename", True))
         species_crop_output_dir = str(raw_config.get("species_crop_output_dir", "preview_species_crops"))
         species_crop_padding = float(raw_config.get("species_crop_padding", 0.15))
+        capture_date_source = str(raw_config.get("capture_date_source", "filesystem")).strip().lower()
+        raw_camera_date_profile = raw_config.get("camera_date_profile")
+        if raw_camera_date_profile is not None and not isinstance(raw_camera_date_profile, dict):
+            raise SystemExit("camera_date_profile must be a YAML mapping when provided")
+        camera_date_profile = raw_camera_date_profile
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc
 
@@ -70,6 +75,8 @@ def load_config(config_path: Path) -> AppConfig:
         raise SystemExit("species_crop_padding must be between 0.0 and 1.0")
     if not pipeline_version:
         raise SystemExit("pipeline_version must be a non-empty string")
+    if capture_date_source not in {"filesystem", "camera_overlay"}:
+        raise SystemExit("capture_date_source must be either 'filesystem' or 'camera_overlay'")
 
     return AppConfig(
         input_dir=input_dir,
@@ -95,6 +102,8 @@ def load_config(config_path: Path) -> AppConfig:
         speciesnet_label_in_filename=speciesnet_label_in_filename,
         species_crop_output_dir=species_crop_output_dir,
         species_crop_padding=species_crop_padding,
+        capture_date_source=capture_date_source,
+        camera_date_profile=camera_date_profile,
     )
 
 

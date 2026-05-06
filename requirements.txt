@@ -10,6 +10,7 @@ torch==2.11.0
 torchvision==0.26.0
 numpy==2.2.3
 Pillow==11.2.1
+pytesseract==0.3.13
 
 # Test dependencies
 pytest==8.4.2
