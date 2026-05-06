@@ -82,6 +82,20 @@ card input files.
 Browser-playable report_videos are generated on every processing pass.
 The HTML summary file itself is still controlled by generate_html_report.
 
+## Design Notes
+
+### Preview frame selection
+
+Preview extraction is based on MegaDetector detections for each video:
+
+1. The pipeline filters detections to only `interesting_categories` and only those at or above `interesting_threshold`.
+2. It picks the single highest-confidence detection from that filtered set.
+3. The detection's `frame_number` becomes `top_frame`.
+4. Preview extraction reads exactly that frame from the video and saves it as the preview image.
+
+If no detection passes filters, the video is classified as `uninteresting`, `top_frame` is unset, and preview extraction is skipped by default.
+If `preview_include_uninteresting` is enabled, uninteresting videos are considered for preview extraction, but they still need a valid `top_frame`.
+
 ## Local Reporting App
 
 Run the local SQLite-backed reporting app:
