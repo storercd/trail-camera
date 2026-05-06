@@ -97,7 +97,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
         filters = {
             "date_from": request.args.get("date_from", ""),
             "date_to": request.args.get("date_to", ""),
-            "bucket": request.args.get("bucket", ""),
+            "bucket": request.args.get("bucket", "interesting"),
             "species": request.args.get("species", ""),
             "min_confidence": request.args.get("min_confidence", ""),
             "max_confidence": request.args.get("max_confidence", ""),

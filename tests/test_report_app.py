@@ -142,3 +142,26 @@ def test_report_app_should_render_filtered_list_and_detail(tmp_path: Path) -> No
     artifact_response = client.get("/artifact/aaa11111/preview_image")
     assert artifact_response.status_code == 200
     assert artifact_response.data == b"artifact"
+
+
+def test_report_app_should_default_to_interesting_bucket(tmp_path: Path) -> None:
+    """Default list view should show interesting videos unless bucket filter is overridden."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    _seed_video(db_path, tmp_path, "ccc33333", "2026-05-03", "interesting", "0.2.0", "fox", 0.88)
+    _seed_video(db_path, tmp_path, "ddd44444", "2026-05-04", "uninteresting", "0.2.0", "empty", 0.01)
+
+    app = create_app(_write_config(tmp_path, db_path))
+    client = app.test_client()
+
+    default_response = client.get("/")
+    assert default_response.status_code == 200
+    default_body = default_response.get_data(as_text=True)
+    assert "ccc33333" in default_body
+    assert "ddd44444" not in default_body
+
+    all_response = client.get("/?bucket=")
+    assert all_response.status_code == 200
+    all_body = all_response.get_data(as_text=True)
+    assert "ccc33333" in all_body
+    assert "ddd44444" in all_body
