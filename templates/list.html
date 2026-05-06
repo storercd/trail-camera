@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Trail Camera Catalog</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f3efe6;
+            --panel: #fffaf2;
+            --ink: #201b15;
+            --muted: #6d655d;
+            --line: #d8cdbd;
+            --accent: #2f6e49;
+            --accent-soft: #e0efdf;
+            --warning: #8c5a1f;
+            --warning-soft: #f6e7cf;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Georgia, "Iowan Old Style", serif;
+            background: linear-gradient(180deg, #fff8ec 0%, var(--bg) 100%);
+            color: var(--ink);
+        }
+        main {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 28px 20px 48px;
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 2.4rem;
+        }
+        p.lead {
+            margin: 0 0 20px;
+            color: var(--muted);
+        }
+        .meta-row, .filter-grid, .card-grid, .pagination {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .meta-chip, .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 0.95rem;
+        }
+        .panel {
+            margin-top: 18px;
+            background: color-mix(in srgb, var(--panel) 95%, white);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            box-shadow: 0 16px 40px rgba(35, 27, 16, 0.08);
+            overflow: hidden;
+        }
+        .filters {
+            padding: 18px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(255,255,255,0.45);
+        }
+        .filter-grid > label {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 140px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        input, select {
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: white;
+            color: var(--ink);
+            font: inherit;
+        }
+        .actions {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .button.secondary {
+            background: transparent;
+            color: var(--accent);
+        }
+        .results-header {
+            padding: 18px 18px 0;
+        }
+        .card-grid {
+            padding: 18px;
+        }
+        .video-card {
+            flex: 1 1 360px;
+            min-width: 320px;
+            background: rgba(255,255,255,0.78);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        .thumb {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            display: block;
+            background: #0e0e0e;
+        }
+        .card-body {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .title-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: start;
+        }
+        .title-row h2 {
+            margin: 0;
+            font-size: 1.15rem;
+            line-height: 1.25;
+        }
+        .muted {
+            color: var(--muted);
+        }
+        .warning {
+            background: var(--warning-soft);
+            color: var(--warning);
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            font-size: 0.95rem;
+        }
+        .stats strong {
+            display: block;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .links a, .pagination a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .pagination {
+            padding: 0 18px 18px;
+            align-items: center;
+        }
+        .pagination .current {
+            font-weight: 600;
+        }
+        @media (max-width: 800px) {
+            .video-card { min-width: 100%; }
+            .stats { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Trail Camera Catalog</h1>
+        <p class="lead">Filter, sort, and review processed videos directly from the SQLite catalog and per-video artifact files.</p>
+        <div class="meta-row">
+            <span class="meta-chip">Current pipeline version: {{ current_pipeline_version }}</span>
+            <span class="meta-chip">Total matches: {{ total_count }}</span>
+            <span class="meta-chip">Page {{ page }} of {{ total_pages }}</span>
+        </div>
+
+        <section class="panel">
+            <form class="filters" method="get">
+                <div class="filter-grid">
+                    <label>Date From<input type="date" name="date_from" value="{{ filters.date_from }}"></label>
+                    <label>Date To<input type="date" name="date_to" value="{{ filters.date_to }}"></label>
+                    <label>Bucket
+                        <select name="bucket">
+                            <option value="">All</option>
+                            {% for value in bucket_options %}
+                            <option value="{{ value }}" {% if filters.bucket == value %}selected{% endif %}>{{ value }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>Species<input type="text" name="species" value="{{ filters.species }}" placeholder="dog, bird, squirrel"></label>
+                    <label>Min Confidence<input type="number" min="0" max="1" step="0.001" name="min_confidence" value="{{ filters.min_confidence }}"></label>
+                    <label>Max Confidence<input type="number" min="0" max="1" step="0.001" name="max_confidence" value="{{ filters.max_confidence }}"></label>
+                    <label>Needs Reprocess
+                        <select name="needs_reprocess">
+                            <option value="">All</option>
+                            <option value="yes" {% if filters.needs_reprocess == 'yes' %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if filters.needs_reprocess == 'no' %}selected{% endif %}>No</option>
+                        </select>
+                    </label>
+                    <label>Sort By
+                        <select name="sort_by">
+                            {% for key, label in sort_options %}
+                            <option value="{{ key }}" {% if filters.sort_by == key %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>Direction
+                        <select name="sort_dir">
+                            <option value="desc" {% if filters.sort_dir == 'desc' %}selected{% endif %}>Descending</option>
+                            <option value="asc" {% if filters.sort_dir == 'asc' %}selected{% endif %}>Ascending</option>
+                        </select>
+                    </label>
+                    <label>Page Size
+                        <select name="page_size">
+                            {% for size in page_sizes %}
+                            <option value="{{ size }}" {% if filters.page_size == size|string %}selected{% endif %}>{{ size }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
+                <div class="actions">
+                    <button class="button" type="submit">Apply Filters</button>
+                    <a class="button secondary" href="{{ url_for('list_videos') }}">Reset</a>
+                </div>
+            </form>
+
+            <div class="results-header">
+                {% if not videos %}
+                <p class="muted">No videos match the current filters.</p>
+                {% endif %}
+            </div>
+            <div class="card-grid">
+                {% for video in videos %}
+                <article class="video-card">
+                    {% if video.preview_image_path %}
+                    <a href="{{ url_for('video_detail', video_id=video.video_id) }}"><img class="thumb" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" alt="Preview for {{ video.display_name }}"></a>
+                    {% else %}
+                    <div class="thumb"></div>
+                    {% endif %}
+                    <div class="card-body">
+                        <div class="title-row">
+                            <div>
+                                <h2><a href="{{ url_for('video_detail', video_id=video.video_id) }}" style="color: inherit; text-decoration: none;">{{ video.display_name }}</a></h2>
+                                <div class="muted">{{ video.video_id[:12] }}{% if video.video_id|length > 12 %}...{% endif %}</div>
+                            </div>
+                            {% if video.needs_reprocess %}
+                            <span class="pill warning">Needs Reprocess</span>
+                            {% endif %}
+                        </div>
+                        <div class="stats">
+                            <div><strong>Species</strong>{{ video.top_label or 'unknown' }}</div>
+                            <div><strong>Confidence</strong>{{ '%.3f'|format(video.top_score if video.top_score is not none else (video.top_confidence or 0.0)) }}</div>
+                            <div><strong>Bucket</strong>{{ video.bucket or 'n/a' }}</div>
+                            <div><strong>Capture Date</strong>{{ video.capture_date or 'unknown' }}</div>
+                        </div>
+                        <div class="links">
+                            <a href="{{ url_for('video_detail', video_id=video.video_id) }}">View Details</a>
+                            {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Clip</a>{% endif %}
+                            {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser Video</a>{% endif %}
+                        </div>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+
+            {% if total_pages > 1 %}
+            <div class="pagination">
+                {% if page > 1 %}
+                <a href="{{ pagination_url(page - 1) }}">Previous</a>
+                {% endif %}
+                <span class="current">Page {{ page }} / {{ total_pages }}</span>
+                {% if page < total_pages %}
+                <a href="{{ pagination_url(page + 1) }}">Next</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

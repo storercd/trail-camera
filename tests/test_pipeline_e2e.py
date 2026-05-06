@@ -8,7 +8,6 @@ generation.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +18,8 @@ from metadata_store import (
     initialize_metadata_store,
 )
 from pipeline_models import AppConfig
-from processing_modes import ingest_videos_into_catalog, load_reprocess_sources
 from process_videos import merge_species_classification_reports
+from processing_modes import ingest_videos_into_catalog, load_reprocess_sources
 from reporting import write_html_summary_from_catalog
 
 
@@ -71,7 +70,13 @@ def _create_test_video(path: Path, name: str = "test.avi", duration_seconds: flo
             # Add seed-based shapes to make each test video unique
             x_offset = (seed * 20 + i * 10) % 500
             y_offset = (seed * 15 + i * 8) % 400
-            cv2.rectangle(frame, (50 + x_offset, 50 + y_offset), (150 + x_offset, 150 + y_offset), (seed % 256, 100 + seed, 200), 2)
+            cv2.rectangle(
+                frame,
+                (50 + x_offset, 50 + y_offset),
+                (150 + x_offset, 150 + y_offset),
+                (seed % 256, 100 + seed, 200),
+                2,
+            )
             writer.write(frame)
 
         writer.release()
@@ -315,12 +320,8 @@ class TestReportOnlyMode:
     def test_report_should_include_all_artifacts(self, tmp_workspace: dict[str, Any]) -> None:
         """Report should include all artifact types stored in catalog."""
         from metadata_store import (
-            ProcessingStateRecord,
-            SpeciesClassificationRecord,
             VideoCatalogRecord,
             sync_artifact_path,
-            upsert_processing_state_record,
-            upsert_species_classification_record,
             upsert_video_record,
         )
 
@@ -377,8 +378,6 @@ class TestCollisionHandling:
         self, tmp_workspace: dict[str, Any]
     ) -> None:
         """Multiple videos with same name but different capture dates should get unique output paths."""
-        from metadata_store import VideoCatalogRecord, upsert_video_record
-
         input_dir = tmp_workspace["input"]
 
         # Create two videos with same name but from different date folders

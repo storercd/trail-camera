@@ -15,8 +15,8 @@ from metadata_store import (
     get_stored_original_records,
     initialize_metadata_store,
     sync_artifact_path,
-    upsert_species_classification_record,
     upsert_processing_state_record,
+    upsert_species_classification_record,
     upsert_video_record,
     video_exists,
 )

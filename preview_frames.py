@@ -480,7 +480,7 @@ def extract_top_frames(
     ]
 
     total = len(filtered_records)
-    for index, record in enumerate(filtered_records, start=1):
+    for _index, record in enumerate(filtered_records, start=1):
         status, output_image, classification_target, message = process_record_for_preview(
             record=record,
             input_dir=input_dir,

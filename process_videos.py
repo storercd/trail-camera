@@ -1,3 +1,5 @@
+"""Main entrypoint for trail-camera video processing and report generation."""
+
 from __future__ import annotations
 
 import argparse
@@ -68,9 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="new-only",
-        choices=("new-only", "reprocess-existing", "report-only"),
+        choices=("new-only", "reprocess-existing", "force-reprocess", "report-only"),
         help=(
-            "Processing mode: new-only, reprocess-existing, or report-only "
+            "Processing mode: new-only (new videos), reprocess-existing "
+            "(outdated or failed), force-reprocess (all), or report-only "
+            "(generate reports only)"
             "(default: new-only)"
         ),
     )
@@ -116,7 +120,11 @@ def sync_species_classifications_to_catalog(
         top_label = top.get("label") if isinstance(top, dict) else None
         top_raw_class = top.get("raw_class") if isinstance(top, dict) else None
         try:
-            top_score = float(top.get("score")) if isinstance(top, dict) and top.get("score") is not None else None
+            top_score = (
+                float(top.get("score"))
+                if isinstance(top, dict) and top.get("score") is not None
+                else None
+            )
         except (TypeError, ValueError):
             top_score = None
 
@@ -237,7 +245,15 @@ def process_single_video(
         video_index: Index of this video (for unique temp file naming).
 
     Returns:
-        tuple: (decisions, staged_video_ids, report_video_paths, preview_stats, preview_paths, crop_paths, temp_species_report).
+        tuple: (
+            decisions,
+            staged_video_ids,
+            report_video_paths,
+            preview_stats,
+            preview_paths,
+            crop_paths,
+            temp_species_report,
+        ).
     """
     # Stage this single video
     processing_input_dir, staged_video_ids = stage_single_processing_input(
@@ -332,7 +348,15 @@ def process_single_video(
         elif item.is_symlink():
             item.unlink()
 
-    return decisions, staged_video_ids, report_video_paths, preview_stats, preview_paths, crop_paths, temp_species_report
+    return (
+        decisions,
+        staged_video_ids,
+        report_video_paths,
+        preview_stats,
+        preview_paths,
+        crop_paths,
+        temp_species_report,
+    )
 
 
 def merge_species_classification_reports(
@@ -429,9 +453,24 @@ def main() -> int:
             f"new_videos={len(newly_discovered_sources)}"
         )
         processing_sources = newly_discovered_sources
+    elif args.mode == "reprocess-existing":
+        processing_sources = load_reprocess_sources(
+            metadata_db_path=paths.metadata_db_path,
+            current_pipeline_version=config.pipeline_version,
+            filter_mode="existing",
+        )
+        print(
+            f"Loaded {len(processing_sources)} outdated or failed videos for reprocessing "
+            f"(current pipeline version: {config.pipeline_version})"
+        )
+    elif args.mode == "force-reprocess":
+        processing_sources = load_reprocess_sources(
+            metadata_db_path=paths.metadata_db_path,
+            filter_mode="force",
+        )
+        print(f"Loaded {len(processing_sources)} canonical originals for force reprocessing")
     else:
-        processing_sources = load_reprocess_sources(paths.metadata_db_path)
-        print(f"Loaded {len(processing_sources)} canonical originals for reprocessing")
+        processing_sources = []
 
     if not processing_sources:
         print(f"No videos selected for processing in mode '{args.mode}'. Exiting.")
@@ -440,8 +479,8 @@ def main() -> int:
     categories = resolve_interesting_categories(config)
 
     effective_move_files = config.move_files
-    if args.mode == "reprocess-existing" and config.move_files:
-        print("Disabling move_files for reprocess-existing mode")
+    if args.mode in ("reprocess-existing", "force-reprocess") and config.move_files:
+        print(f"Disabling move_files for {args.mode} mode")
         effective_move_files = False
 
     # Setup output directories
@@ -481,7 +520,15 @@ def main() -> int:
             )
 
             try:
-                decisions, staged_video_ids, report_video_paths, preview_stats, preview_paths, crop_paths, temp_species_report = (
+                (
+                    decisions,
+                    staged_video_ids,
+                    report_video_paths,
+                    preview_stats,
+                    preview_paths,
+                    crop_paths,
+                    temp_species_report,
+                ) = (
                     process_single_video(
                         source=source,
                         staging_dir=staging_dir,
@@ -514,7 +561,7 @@ def main() -> int:
                 decision_start_idx = len(all_decisions)
                 all_decisions.extend(decisions)
                 # Track which source each decision came from
-                for i, decision in enumerate(decisions):
+                for i, _decision in enumerate(decisions):
                     processing_sources_by_decision[decision_start_idx + i] = source
                 all_staged_video_ids.update(staged_video_ids)
 

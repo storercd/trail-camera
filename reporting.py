@@ -13,7 +13,7 @@ from metadata_store import fetch_catalog_snapshot
 from pipeline_models import AppConfig, VideoDecision
 
 if TYPE_CHECKING:
-    from preview_frames import PreviewExtractionStats
+    pass
 
 
 def write_sqlite_snapshot_export(

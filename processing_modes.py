@@ -95,19 +95,61 @@ def ingest_videos_into_catalog(
     return len(videos), newly_persisted, newly_discovered_sources
 
 
-def load_reprocess_sources(metadata_db_path: Path) -> list[ProcessingSource]:
-    """Load canonical stored originals for reprocess-existing mode.
+def load_reprocess_sources(
+    metadata_db_path: Path,
+    current_pipeline_version: str | None = None,
+    filter_mode: str = "force",
+) -> list[ProcessingSource]:
+    """Load canonical stored originals for reprocessing.
 
     Args:
         metadata_db_path: SQLite metadata catalog path.
+        current_pipeline_version: Current pipeline version for filtering.
+            Required when filter_mode is "existing".
+        filter_mode: Filtering strategy:
+            - "force": Load all videos regardless of status/version.
+            - "existing": Load only videos with outdated pipeline_version or status="failed".
 
     Returns:
-        list[ProcessingSource]: Existing canonical source files with IDs.
+        list[ProcessingSource]: Canonical source files selected for reprocessing.
+
+    Raises:
+        ValueError: When filter_mode is "existing" and current_pipeline_version is missing.
     """
+    import sqlite3
+
+    all_records = dict(get_stored_original_records(metadata_db_path))
+
+    if filter_mode == "force":
+        return [
+            ProcessingSource(source=path, video_id=video_id)
+            for video_id, path in all_records.items()
+            if path.exists()
+        ]
+
+    # filter_mode == "existing": only outdated or failed videos
+    if not current_pipeline_version:
+        raise ValueError("current_pipeline_version required for filter_mode='existing'")
+
+    filtered_records: dict[str, Path] = {}
+    with sqlite3.connect(metadata_db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT video_id FROM processing_state
+            WHERE pipeline_version != ? OR status = 'failed'
+            """,
+            (current_pipeline_version,),
+        ).fetchall()
+
+    outdated_or_failed_ids = {row[0] for row in rows}
+
+    for video_id, path in all_records.items():
+        if video_id in outdated_or_failed_ids and path.exists():
+            filtered_records[video_id] = path
+
     return [
         ProcessingSource(source=path, video_id=video_id)
-        for video_id, path in get_stored_original_records(metadata_db_path)
-        if path.exists()
+        for video_id, path in filtered_records.items()
     ]
 
 

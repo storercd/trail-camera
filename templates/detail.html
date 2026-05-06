@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ video.display_name }} - Trail Camera Catalog</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f3efe6;
+            --panel: #fffaf2;
+            --ink: #201b15;
+            --muted: #6d655d;
+            --line: #d8cdbd;
+            --accent: #2f6e49;
+            --accent-soft: #e0efdf;
+            --warning: #8c5a1f;
+            --warning-soft: #f6e7cf;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Georgia, "Iowan Old Style", serif;
+            background: linear-gradient(180deg, #fff8ec 0%, var(--bg) 100%);
+            color: var(--ink);
+        }
+        main {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 28px 20px 48px;
+        }
+        .back {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        h1 {
+            margin: 14px 0 8px;
+            font-size: 2.3rem;
+        }
+        .meta-row, .media-grid, .artifact-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 0.95rem;
+        }
+        .warning { background: var(--warning-soft); color: var(--warning); }
+        .panel {
+            margin-top: 18px;
+            background: color-mix(in srgb, var(--panel) 95%, white);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            box-shadow: 0 16px 40px rgba(35, 27, 16, 0.08);
+            overflow: hidden;
+            padding: 18px;
+        }
+        .media-grid > section { flex: 1 1 320px; }
+        video, img {
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: #0e0e0e;
+            display: block;
+        }
+        .kv {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 16px;
+        }
+        .kv div strong {
+            display: block;
+            color: var(--muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }
+        .artifact-links a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        ol, ul { margin: 0; padding-left: 20px; }
+        @media (max-width: 800px) { .kv { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <main>
+        <a class="back" href="{{ url_for('list_videos') }}">← Back to Catalog</a>
+        <h1>{{ video.display_name }}</h1>
+        <div class="meta-row">
+            <span class="pill">Bucket: {{ video.bucket or 'n/a' }}</span>
+            <span class="pill">Species: {{ video.top_label or 'unknown' }}</span>
+            <span class="pill">Confidence: {{ '%.3f'|format(video.top_score if video.top_score is not none else (video.top_confidence or 0.0)) }}</span>
+            {% if video.needs_reprocess %}<span class="pill warning">Needs Reprocess</span>{% endif %}
+        </div>
+
+        <section class="panel">
+            <div class="artifact-links">
+                {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Native Clip</a>{% endif %}
+                {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser Video</a>{% endif %}
+                {% if video.preview_image_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" target="_blank">Open Preview</a>{% endif %}
+                {% if video.species_crop_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" target="_blank">Open Species Crop</a>{% endif %}
+            </div>
+            <div class="kv">
+                <div><strong>Video ID</strong>{{ video.video_id }}</div>
+                <div><strong>Capture Date</strong>{{ video.capture_date or 'unknown' }}</div>
+                <div><strong>Original Filename</strong>{{ video.original_filename }}</div>
+                <div><strong>Pipeline Version</strong>{{ video.pipeline_version or 'unprocessed' }}</div>
+                <div><strong>Processed At</strong>{{ video.processed_at or 'n/a' }}</div>
+                <div><strong>Mode</strong>{{ video.mode or 'n/a' }}</div>
+            </div>
+        </section>
+
+        <section class="panel media-grid">
+            <section>
+                <h2>Browser Video</h2>
+                {% if video.report_video_path %}
+                <video controls preload="metadata" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}"></video>
+                {% else %}<p>No browser-ready video.</p>{% endif %}
+            </section>
+            <section>
+                <h2>Preview</h2>
+                {% if video.preview_image_path %}
+                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" alt="Preview image">
+                {% else %}<p>No preview image.</p>{% endif %}
+            </section>
+            <section>
+                <h2>Species Crop</h2>
+                {% if video.species_crop_path %}
+                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" alt="Species crop">
+                {% else %}<p>No species crop.</p>{% endif %}
+            </section>
+        </section>
+
+        <section class="panel">
+            <h2>Candidates</h2>
+            {% if candidates %}
+            <ol>
+                {% for candidate in candidates %}
+                <li>{{ candidate.label }} ({{ '%.3f'|format(candidate.score) }})</li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p>No species candidates stored.</p>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>
