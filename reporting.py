@@ -385,6 +385,25 @@ def write_html_summary(
         handle.write(page)
 
 
+def _build_artifacts_by_video(snapshot_artifacts: list[dict[str, Any]]) -> dict[str, dict[str, Path]]:
+    """Build artifact map keyed by video_id and artifact_type.
+
+    Returns:
+        dict[str, dict[str, Path]]: Artifact paths by video and artifact type.
+    """
+    artifacts_by_video: dict[str, dict[str, Path]] = {}
+    for row in snapshot_artifacts:
+        video_id = row.get("video_id")
+        artifact_type = row.get("artifact_type")
+        artifact_path = row.get("path")
+        if not isinstance(video_id, str) or not isinstance(artifact_type, str):
+            continue
+        if not isinstance(artifact_path, str) or not artifact_path:
+            continue
+        artifacts_by_video.setdefault(video_id, {})[artifact_type] = Path(artifact_path)
+    return artifacts_by_video
+
+
 def write_html_summary_from_catalog(
     html_summary_path: Path,
     metadata_db_path: Path,
@@ -404,16 +423,7 @@ def write_html_summary_from_catalog(
         if row.get("video_id")
     }
 
-    artifacts_by_video: dict[str, dict[str, Path]] = {}
-    for row in snapshot.get("artifacts", []):
-        video_id = row.get("video_id")
-        artifact_type = row.get("artifact_type")
-        artifact_path = row.get("path")
-        if not isinstance(video_id, str) or not isinstance(artifact_type, str):
-            continue
-        if not isinstance(artifact_path, str) or not artifact_path:
-            continue
-        artifacts_by_video.setdefault(video_id, {})[artifact_type] = Path(artifact_path)
+    artifacts_by_video = _build_artifacts_by_video(snapshot.get("artifacts", []))
 
     processing_rows = [
         row
