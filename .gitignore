@@ -8,3 +8,6 @@ __pycache__/
 
 # OS files
 .DS_Store
+
+# for dev work, we can remove this later
+input_old/
