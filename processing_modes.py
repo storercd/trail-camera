@@ -55,7 +55,15 @@ def ingest_videos_into_catalog(
     """
     newly_persisted = 0
     newly_discovered_sources: list[ProcessingSource] = []
-    for source in videos:
+    total_videos = len(videos)
+    progress_every = 10
+    for index, source in enumerate(videos, start=1):
+        if index == 1 or index % progress_every == 0 or index == total_videos:
+            print(
+                f"[ingest {index}/{total_videos}] hashing and cataloging {source.name}",
+                flush=True,
+            )
+
         video_id = compute_sha256(source)
         was_known_video_id = video_exists(metadata_db_path, video_id)
         stored_original_path: Path | None = None
