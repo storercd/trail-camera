@@ -308,6 +308,32 @@ def persist_canonical_original(
     return destination
 
 
+def overwrite_canonical_original(
+    videos_root_dir: Path,
+    video_id: str,
+    source: Path,
+) -> Path:
+    """Force-rewrite canonical original source file for a video ID.
+
+    Args:
+        videos_root_dir: Root folder containing canonical per-video folders.
+        video_id: Stable video identifier.
+        source: Source video file to persist.
+
+    Returns:
+        Path: Canonical original file path.
+    """
+    destination = build_canonical_original_path(videos_root_dir, video_id, source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    for existing in destination.parent.glob("source.*"):
+        if existing.is_file() and existing != destination:
+            existing.unlink()
+
+    shutil.copy2(source, destination)
+    return destination
+
+
 def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
     """Find video files in the input directory.
 
