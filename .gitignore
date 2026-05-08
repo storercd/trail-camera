@@ -9,5 +9,10 @@ __pycache__/
 # OS files
 .DS_Store
 
+# code coverage
+.coverage
+
 # for dev work, we can remove this later
 input_old/
+output_old/
+

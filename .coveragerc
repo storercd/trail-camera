@@ -1,0 +1,13 @@
+[run]
+source = .
+omit =
+    tests/*
+    .venv/*
+    output/*
+    config.py
+    config-*.py
+
+[report]
+skip_covered = True
+show_missing = True
+precision = 0
