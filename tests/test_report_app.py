@@ -132,6 +132,7 @@ def test_report_app_should_render_filtered_list_and_detail(tmp_path: Path) -> No
     assert "dog" in list_body
     assert "Needs Reprocess" in list_body
     assert "bbb22222" not in list_body
+    assert "/artifact/aaa11111/species_crop" in list_body
 
     detail_response = client.get("/video/aaa11111")
     assert detail_response.status_code == 200

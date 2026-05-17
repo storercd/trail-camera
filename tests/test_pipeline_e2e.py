@@ -118,6 +118,8 @@ def _create_minimal_config(workspace: dict[str, Any]) -> AppConfig:
         species_crop_padding=0.15,
         capture_date_source="filesystem",
         camera_date_profile=None,
+        excluded_megadetector_categories=["3"],
+        uninteresting_species_labels=["domestic dog"],
     )
 
 

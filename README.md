@@ -18,6 +18,8 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - frame_sample: Process every Nth frame (default: 5)
 - interesting_threshold: Detection confidence threshold for classifying a video as interesting (default: 0.7)
 - interesting_categories: Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
+- excluded_megadetector_categories: Category IDs to force as uninteresting even if included in interesting_categories
+- uninteresting_species_labels: SpeciesNet top labels to force as uninteresting (case-insensitive)
 - move_files: Move source files to canonical storage instead of copying (only effective in new-only mode)
 - save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
 - clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
@@ -96,6 +98,9 @@ Preview extraction is based on MegaDetector detections for each video:
 If no detection passes filters, the video is classified as `uninteresting`, `top_frame` is unset, and preview extraction is skipped by default.
 If `preview_include_uninteresting` is enabled, uninteresting videos are considered for preview extraction, but they still need a valid `top_frame`.
 
+After SpeciesNet classification, the pipeline can also demote videos to `uninteresting`
+when their top species label matches `uninteresting_species_labels`.
+
 ## Local Reporting App
 
 Run the local SQLite-backed reporting app:
@@ -118,6 +123,24 @@ The reporting app reads only from:
 - per-video artifact files under `output/videos/<shard>/<shard>/<video_id>/...`
 
 It does not run MegaDetector, SpeciesNet, or any artifact generation.
+
+The catalog list view prefers species crop images for video card thumbnails, with
+a fallback to full-frame preview images.
+
+## Cleanup Existing Output
+
+To reclaim disk space for already-processed videos that match uninteresting filters,
+run:
+
+```bash
+/usr/local/bin/python3 scripts/cleanup_uninteresting.py --config process_videos.config.yaml
+```
+
+Use dry-run mode first to review matches:
+
+```bash
+/usr/local/bin/python3 scripts/cleanup_uninteresting.py --config process_videos.config.yaml --dry-run
+```
 
 Current first-slice capabilities:
 

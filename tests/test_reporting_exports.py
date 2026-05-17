@@ -51,6 +51,8 @@ def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Pat
         species_crop_padding=0.15,
         capture_date_source="filesystem",
         camera_date_profile=None,
+        excluded_megadetector_categories=["3"],
+        uninteresting_species_labels=["domestic dog"],
     )
     config_path = tmp_path / "config.yaml"
     config_path.write_text("input_dir: input\noutput_dir: output\n", encoding="utf-8")

@@ -50,6 +50,7 @@ def analyze_video_result(
     image_entry: dict[str, Any],
     interesting_categories: set[str],
     threshold: float,
+    excluded_megadetector_categories: set[str] | None = None,
 ) -> VideoDecision:
     """Classify one MegaDetector image record into an output bucket.
 
@@ -77,9 +78,12 @@ def analyze_video_result(
             failure=str(image_entry["failure"]),
         )
 
+    excluded_categories = excluded_megadetector_categories or set()
+    effective_categories = interesting_categories - excluded_categories
+
     detections = image_entry.get("detections") or []
     best, interesting_count, first_interesting_frame, last_interesting_frame = (
-        collect_interesting_detection_stats(detections, interesting_categories, threshold)
+        collect_interesting_detection_stats(detections, effective_categories, threshold)
     )
 
     if best is None:
@@ -199,6 +203,7 @@ def classify_and_sort_videos(
     clip_interesting_videos: bool,
     clip_buffer_frames: int,
     bucket_output_paths: dict[str, Path] | None = None,
+    excluded_megadetector_categories: set[str] | None = None,
 ) -> list[VideoDecision]:
     """Classify video results and copy/move original files into output buckets.
 
@@ -214,6 +219,8 @@ def classify_and_sort_videos(
         clip_buffer_frames: Buffer to add before first and after last interesting frame.
         bucket_output_paths: Optional mapping from input-relative path to exact
             bucketed destination path.
+        excluded_megadetector_categories: MegaDetector categories to ignore when
+            determining interesting detections.
 
     Returns:
         list[VideoDecision]: Per-video decisions used for reporting.
@@ -222,7 +229,12 @@ def classify_and_sort_videos(
     total_entries = len(image_entries)
 
     for index, image_entry in enumerate(image_entries, start=1):
-        decision = analyze_video_result(image_entry, interesting_categories, threshold)
+        decision = analyze_video_result(
+            image_entry,
+            interesting_categories,
+            threshold,
+            excluded_megadetector_categories,
+        )
         source = input_dir / decision.relative_path
         if source.exists():
             decision.output_relative_path = build_dated_relative_output_path(

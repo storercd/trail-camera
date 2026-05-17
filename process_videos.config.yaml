@@ -25,6 +25,16 @@ interesting_categories:
   - "2"
   - "3"
 
+# MegaDetector category IDs to force as uninteresting even if listed in interesting_categories.
+excluded_megadetector_categories:
+  - "2"
+  - "3"
+
+# Species labels to force as uninteresting when SpeciesNet top label matches.
+uninteresting_species_labels:
+  - domestic dog
+  - canis species
+
 # Move files instead of copying them into output buckets
 move_files: false
 

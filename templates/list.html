@@ -253,7 +253,9 @@
             <div class="card-grid">
                 {% for video in videos %}
                 <article class="video-card">
-                    {% if video.preview_image_path %}
+                    {% if video.species_crop_path %}
+                    <a href="{{ url_for('video_detail', video_id=video.video_id) }}"><img class="thumb" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" alt="Preview for {{ video.display_name }}"></a>
+                    {% elif video.preview_image_path %}
                     <a href="{{ url_for('video_detail', video_id=video.video_id) }}"><img class="thumb" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" alt="Preview for {{ video.display_name }}"></a>
                     {% else %}
                     <div class="thumb"></div>

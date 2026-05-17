@@ -60,6 +60,18 @@ def load_config(config_path: Path) -> AppConfig:
         species_crop_output_dir = str(raw_config.get("species_crop_output_dir", "preview_species_crops"))
         species_crop_padding = float(raw_config.get("species_crop_padding", 0.15))
         capture_date_source = str(raw_config.get("capture_date_source", "filesystem")).strip().lower()
+        excluded_categories_raw = raw_config.get("excluded_megadetector_categories", ["3"])
+        if not isinstance(excluded_categories_raw, list):
+            raise SystemExit("excluded_megadetector_categories must be a YAML list")
+        excluded_megadetector_categories = [
+            str(category).strip() for category in excluded_categories_raw if str(category).strip()
+        ]
+        uninteresting_species_raw = raw_config.get("uninteresting_species_labels", ["domestic dog"])
+        if not isinstance(uninteresting_species_raw, list):
+            raise SystemExit("uninteresting_species_labels must be a YAML list")
+        uninteresting_species_labels = [
+            str(label).strip() for label in uninteresting_species_raw if str(label).strip()
+        ]
         raw_camera_date_profile = raw_config.get("camera_date_profile")
         if raw_camera_date_profile is not None and not isinstance(raw_camera_date_profile, dict):
             raise SystemExit("camera_date_profile must be a YAML mapping when provided")
@@ -104,6 +116,8 @@ def load_config(config_path: Path) -> AppConfig:
         species_crop_padding=species_crop_padding,
         capture_date_source=capture_date_source,
         camera_date_profile=camera_date_profile,
+        excluded_megadetector_categories=excluded_megadetector_categories,
+        uninteresting_species_labels=uninteresting_species_labels,
     )
 
 

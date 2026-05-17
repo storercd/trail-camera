@@ -150,6 +150,126 @@ def _extract_species_top_fields(entry: dict[str, Any]) -> tuple[str | None, floa
     )
 
 
+def _normalize_species_labels(labels: list[str]) -> set[str]:
+    """Normalize species labels for case-insensitive matching."""
+    return {label.strip().lower() for label in labels if label.strip()}
+
+
+def _load_species_top_label_by_output_path(
+    species_classification_report_path: Path,
+) -> dict[str, str]:
+    """Load top species labels keyed by source_relative_path."""
+    if not species_classification_report_path.exists():
+        return {}
+    try:
+        with species_classification_report_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    labels_by_path: dict[str, str] = {}
+    for entry in payload.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        source_relative_path = entry.get("source_relative_path")
+        top_classification = entry.get("top_classification")
+        if not isinstance(source_relative_path, str) or not source_relative_path:
+            continue
+        if not isinstance(top_classification, dict):
+            continue
+        label = top_classification.get("label")
+        if isinstance(label, str) and label.strip():
+            labels_by_path[source_relative_path] = label.strip()
+    return labels_by_path
+
+
+def apply_uninteresting_species_filters(
+    decisions: list[VideoDecision],
+    species_classification_report_path: Path,
+    uninteresting_species_labels: list[str],
+) -> set[str]:
+    """Demote interesting decisions when top species label is configured as uninteresting.
+
+    Returns:
+        set[str]: Output-relative paths for decisions demoted to uninteresting.
+    """
+    normalized_labels = _normalize_species_labels(uninteresting_species_labels)
+    if not normalized_labels:
+        return set()
+
+    labels_by_path = _load_species_top_label_by_output_path(species_classification_report_path)
+    if not labels_by_path:
+        return set()
+
+    demoted_paths: set[str] = set()
+    for decision in decisions:
+        if decision.bucket != "interesting":
+            continue
+        top_label = labels_by_path.get(decision.output_relative_path, "").strip().lower()
+        if top_label in normalized_labels:
+            decision.bucket = "uninteresting"
+            demoted_paths.add(decision.output_relative_path)
+    return demoted_paths
+
+
+def _unlink_if_exists(path: Path) -> bool:
+    """Delete a file when present.
+
+    Returns:
+        bool: True when a file was removed.
+    """
+    if path.exists() and path.is_file():
+        path.unlink()
+        return True
+    return False
+
+
+def cleanup_demoted_output_artifacts(
+    demoted_output_paths: set[str],
+    decisions: list[VideoDecision],
+    processing_sources_by_decision: dict[int, ProcessingSource],
+    canonical_videos_dir: Path,
+    report_video_paths: dict[str, Path],
+    preview_paths: dict[str, Path],
+    crop_paths: dict[str, Path],
+) -> int:
+    """Remove generated artifacts for newly demoted uninteresting decisions.
+
+    Returns:
+        int: Number of files deleted.
+    """
+    if not demoted_output_paths:
+        return 0
+
+    deleted_files = 0
+    for output_path in sorted(demoted_output_paths):
+        report_path = report_video_paths.pop(output_path, None)
+        if report_path is not None and _unlink_if_exists(report_path):
+            deleted_files += 1
+
+        preview_path = preview_paths.pop(output_path, None)
+        if preview_path is not None and _unlink_if_exists(preview_path):
+            deleted_files += 1
+
+        crop_path = crop_paths.pop(output_path, None)
+        if crop_path is not None and _unlink_if_exists(crop_path):
+            deleted_files += 1
+
+    for decision_idx, decision in enumerate(decisions):
+        if decision.output_relative_path not in demoted_output_paths:
+            continue
+        source = processing_sources_by_decision.get(decision_idx)
+        if source is None:
+            continue
+        suffix = Path(decision.relative_path).suffix.lower() or ".bin"
+        canonical_dir = build_video_storage_dir(canonical_videos_dir, source.video_id)
+        bucketed_path = canonical_dir / f"interesting{suffix}"
+        if _unlink_if_exists(bucketed_path):
+            deleted_files += 1
+
+    return deleted_files
+
+
 def sync_species_classifications_to_catalog(
     species_classification_report_path: Path,
     metadata_db_path: Path,
@@ -341,6 +461,7 @@ def process_single_video(
             staged_video_ids=staged_video_ids,
             canonical_videos_dir=paths.canonical_videos_dir,
         ),
+        excluded_megadetector_categories=set(config.excluded_megadetector_categories),
     )
 
     # Generate report videos for this video
@@ -950,6 +1071,26 @@ def main() -> int:
         temp_reports=ordered_species_reports,
         final_report_path=species_classification_report_path,
     )
+
+    demoted_output_paths = apply_uninteresting_species_filters(
+        decisions=accumulator.all_decisions,
+        species_classification_report_path=species_classification_report_path,
+        uninteresting_species_labels=config.uninteresting_species_labels,
+    )
+    if demoted_output_paths:
+        deleted_files = cleanup_demoted_output_artifacts(
+            demoted_output_paths=demoted_output_paths,
+            decisions=accumulator.all_decisions,
+            processing_sources_by_decision=accumulator.processing_sources_by_decision,
+            canonical_videos_dir=paths.canonical_videos_dir,
+            report_video_paths=accumulator.all_report_video_paths,
+            preview_paths=accumulator.all_preview_paths,
+            crop_paths=accumulator.all_crop_paths,
+        )
+        print(
+            "Applied uninteresting species filter. "
+            f"demoted={len(demoted_output_paths)}, removed_files={deleted_files}"
+        )
 
     bucketed_video_paths_final, video_ids_by_output_path = _build_video_id_maps(
         accumulator,
