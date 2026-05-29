@@ -11,7 +11,12 @@ from typing import Any
 
 from flask import Flask, abort, redirect, render_template, request, send_file, url_for
 
-from metadata_store import get_catalog_video_detail, list_catalog_videos, set_video_favorite
+from metadata_store import (
+    get_catalog_video_detail,
+    list_catalog_top_labels,
+    list_catalog_videos,
+    set_video_favorite,
+)
 from pipeline_config import DEFAULT_CONFIG_PATH, build_run_paths, load_config
 
 
@@ -134,6 +139,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             page=page,
             page_size=page_size,
         )
+        top_label_counts = list_catalog_top_labels(
+            db_path=app.config["METADATA_DB_PATH"],
+            current_pipeline_version=app.config["CURRENT_PIPELINE_VERSION"],
+            date_from=filters["date_from"] or None,
+            date_to=filters["date_to"] or None,
+            bucket=filters["bucket"] or None,
+            species=filters["species"] or None,
+            min_confidence=_parse_optional_float(filters["min_confidence"]),
+            max_confidence=_parse_optional_float(filters["max_confidence"]),
+            needs_reprocess=_parse_needs_reprocess(filters["needs_reprocess"]),
+            is_favorite=_parse_is_favorite(filters["is_favorite"]),
+        )
         for row in rows:
             row["needs_reprocess"] = row.get("pipeline_version") != app.config["CURRENT_PIPELINE_VERSION"]
             row["is_favorite"] = bool(row.get("is_favorite"))
@@ -152,6 +169,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             videos=rows,
             filters=filters,
             total_count=total_count,
+            top_label_counts=top_label_counts,
             page=page,
             total_pages=total_pages,
             current_pipeline_version=app.config["CURRENT_PIPELINE_VERSION"],

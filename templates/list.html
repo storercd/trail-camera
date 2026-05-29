@@ -106,6 +106,38 @@
         .results-header {
             padding: 18px 18px 0;
         }
+        .summary-panel {
+            margin: 0 18px 18px;
+            padding: 16px 18px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.55);
+        }
+        .summary-panel h2 {
+            margin: 0 0 8px;
+            font-size: 1.05rem;
+        }
+        .summary-panel p {
+            margin: 0 0 12px;
+            color: var(--muted);
+        }
+        .summary-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .summary-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fffdf8;
+        }
+        .summary-item strong {
+            font-size: 1rem;
+        }
         .card-grid {
             padding: 18px;
         }
@@ -282,6 +314,17 @@
                 <p class="muted">No videos match the current filters.</p>
                 {% endif %}
             </div>
+            {% if top_label_counts %}
+            <section class="summary-panel">
+                <h2>Top Candidate Counts</h2>
+                <p>Counts use the most likely candidate for every video matching the current filters, not just the videos on this page.</p>
+                <div class="summary-list">
+                    {% for item in top_label_counts %}
+                    <span class="summary-item">{{ item.label }} <strong>{{ item.count }}</strong></span>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
             <div class="card-grid">
                 {% for video in videos %}
                 <article class="video-card">

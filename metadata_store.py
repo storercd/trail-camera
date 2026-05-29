@@ -467,6 +467,97 @@ def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
     }
 
 
+def _build_catalog_filters(
+    current_pipeline_version: str,
+    date_from: str | None,
+    date_to: str | None,
+    bucket: str | None,
+    species: str | None,
+    min_confidence: float | None,
+    max_confidence: float | None,
+    needs_reprocess: bool | None,
+    is_favorite: bool | None,
+) -> tuple[list[str], list[Any]]:
+    """Build shared WHERE-clause fragments for catalog queries.
+
+    Returns:
+        tuple[list[str], list[Any]]: SQL filter snippets and bound parameters.
+    """
+    filters: list[str] = []
+    params: list[Any] = []
+    simple_filters = [
+        (date_from, "v.capture_date >= ?"),
+        (date_to, "v.capture_date <= ?"),
+        (bucket, "ps.bucket = ?"),
+        (min_confidence, "COALESCE(sc.top_score, ps.top_confidence) >= ?"),
+        (max_confidence, "COALESCE(sc.top_score, ps.top_confidence) <= ?"),
+    ]
+    for value, clause in simple_filters:
+        if value is None or value == "":
+            continue
+        filters.append(clause)
+        params.append(value)
+    if species:
+        filters.append("LOWER(COALESCE(sc.top_label, '')) LIKE ?")
+        params.append(f"%{species.lower()}%")
+    if needs_reprocess is True:
+        filters.append("(ps.pipeline_version IS NULL OR ps.pipeline_version != ?)")
+        params.append(current_pipeline_version)
+    elif needs_reprocess is False:
+        filters.append("ps.pipeline_version = ?")
+        params.append(current_pipeline_version)
+    if is_favorite is True:
+        filters.append("f.video_id IS NOT NULL")
+    elif is_favorite is False:
+        filters.append("f.video_id IS NULL")
+    return filters, params
+
+
+def list_catalog_top_labels(
+    db_path: Path,
+    current_pipeline_version: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    bucket: str | None = None,
+    species: str | None = None,
+    min_confidence: float | None = None,
+    max_confidence: float | None = None,
+    needs_reprocess: bool | None = None,
+    is_favorite: bool | None = None,
+) -> list[dict[str, Any]]:
+    """Return top-label counts for the full filtered report result set."""
+    ensure_favorites_table(db_path)
+    filters, params = _build_catalog_filters(
+        current_pipeline_version=current_pipeline_version,
+        date_from=date_from,
+        date_to=date_to,
+        bucket=bucket,
+        species=species,
+        min_confidence=min_confidence,
+        max_confidence=max_confidence,
+        needs_reprocess=needs_reprocess,
+        is_favorite=is_favorite,
+    )
+    filters.append("COALESCE(sc.top_label, '') != ''")
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+    sql = f"""
+        SELECT sc.top_label AS label, COUNT(*) AS count
+        FROM videos v
+        LEFT JOIN processing_state ps ON ps.video_id = v.video_id
+        LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN favorites f ON f.video_id = v.video_id
+        {where_clause}
+        GROUP BY sc.top_label
+        ORDER BY count DESC, LOWER(sc.top_label) ASC
+    """
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = [dict(row) for row in connection.execute(sql, params).fetchall()]
+    return rows
+
+
 def list_catalog_videos(
     db_path: Path,
     current_pipeline_version: str,
@@ -495,36 +586,17 @@ def list_catalog_videos(
     order_column = sort_columns.get(sort_by, sort_columns["capture_date"])
     order_direction = "ASC" if str(sort_dir).lower() == "asc" else "DESC"
 
-    filters: list[str] = []
-    params: list[Any] = []
-    if date_from:
-        filters.append("v.capture_date >= ?")
-        params.append(date_from)
-    if date_to:
-        filters.append("v.capture_date <= ?")
-        params.append(date_to)
-    if bucket:
-        filters.append("ps.bucket = ?")
-        params.append(bucket)
-    if species:
-        filters.append("LOWER(COALESCE(sc.top_label, '')) LIKE ?")
-        params.append(f"%{species.lower()}%")
-    if min_confidence is not None:
-        filters.append("COALESCE(sc.top_score, ps.top_confidence) >= ?")
-        params.append(min_confidence)
-    if max_confidence is not None:
-        filters.append("COALESCE(sc.top_score, ps.top_confidence) <= ?")
-        params.append(max_confidence)
-    if needs_reprocess is True:
-        filters.append("(ps.pipeline_version IS NULL OR ps.pipeline_version != ?)")
-        params.append(current_pipeline_version)
-    elif needs_reprocess is False:
-        filters.append("ps.pipeline_version = ?")
-        params.append(current_pipeline_version)
-    if is_favorite is True:
-        filters.append("f.video_id IS NOT NULL")
-    elif is_favorite is False:
-        filters.append("f.video_id IS NULL")
+    filters, params = _build_catalog_filters(
+        current_pipeline_version=current_pipeline_version,
+        date_from=date_from,
+        date_to=date_to,
+        bucket=bucket,
+        species=species,
+        min_confidence=min_confidence,
+        max_confidence=max_confidence,
+        needs_reprocess=needs_reprocess,
+        is_favorite=is_favorite,
+    )
 
     where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
     safe_page = max(1, int(page))

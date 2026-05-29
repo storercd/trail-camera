@@ -232,3 +232,67 @@ def test_report_app_should_support_legacy_catalog_without_favorites_table(tmp_pa
     response = client.get("/")
     assert response.status_code == 200
     assert "ggg77777" in response.get_data(as_text=True)
+
+
+def test_report_app_should_render_top_candidate_counts_for_filtered_set(tmp_path: Path) -> None:
+    """Statistics should count top labels across the full filtered set, not only the current page."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    _seed_video(db_path, tmp_path, "hhh88888", "2026-05-08", "interesting", "0.2.0", "coyote", 0.96)
+    _seed_video(db_path, tmp_path, "iii99999", "2026-05-08", "interesting", "0.2.0", "squirrel", 0.91)
+    _seed_video(db_path, tmp_path, "jjj00000", "2026-05-08", "interesting", "0.2.0", "squirrel", 0.83)
+
+    app = create_app(_write_config(tmp_path, db_path))
+    client = app.test_client()
+
+    response = client.get("/?date_from=2026-05-08&date_to=2026-05-08&page_size=1&sort_by=confidence&sort_dir=desc")
+    assert response.status_code == 200
+
+    body = response.get_data(as_text=True)
+    assert "Top Candidate Counts" in body
+    assert "coyote <strong>1</strong>" in body
+    assert "squirrel <strong>2</strong>" in body
+    assert "Counts use the most likely candidate for every video matching the current filters" in body
+
+
+def test_report_app_should_render_all_candidate_counts_without_top_limit(tmp_path: Path) -> None:
+    """Statistics should include labels beyond the former top-results cap."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    labels = [
+        "antelope",
+        "badger",
+        "bobcat",
+        "chipmunk",
+        "coyote",
+        "crow",
+        "deer",
+        "dog",
+        "fox",
+        "hawk",
+        "mouse",
+        "rabbit",
+        "raccoon",
+    ]
+    for index, label in enumerate(labels, start=1):
+        _seed_video(
+            db_path,
+            tmp_path,
+            f"vid{index:05d}",
+            "2026-05-09",
+            "interesting",
+            "0.2.0",
+            label,
+            0.8,
+        )
+
+    app = create_app(_write_config(tmp_path, db_path))
+    client = app.test_client()
+
+    response = client.get("/?date_from=2026-05-09&date_to=2026-05-09")
+    assert response.status_code == 200
+
+    body = response.get_data(as_text=True)
+    assert "antelope <strong>1</strong>" in body
+    assert "raccoon <strong>1</strong>" in body
