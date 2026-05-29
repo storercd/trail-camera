@@ -39,6 +39,7 @@ from processing_modes import (
     ingest_videos_into_catalog,
     load_reprocess_sources,
     record_processing_results,
+    reset_input_videos_for_reingest,
     stage_single_processing_input,
 )
 from reporting import (
@@ -90,10 +91,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         default="new-only",
-        choices=("new-only", "reprocess-existing", "force-reprocess", "report-only"),
+        choices=("new-only", "reprocess-input", "reprocess-existing", "force-reprocess", "report-only"),
         help=(
-            "Processing mode: new-only (new videos), reprocess-existing "
-            "(outdated or failed), force-reprocess (all), or report-only "
+            "Processing mode: new-only (new videos), reprocess-input "
+            "(delete matching catalog rows and ingest input videos as new), "
+            "reprocess-existing (outdated or failed), force-reprocess (all), or report-only "
             "(generate reports only)"
             "(default: new-only)"
         ),
@@ -550,7 +552,50 @@ def process_single_video(
     )
 
 
-def merge_species_classification_reports(  # noqa: C901
+def _build_temp_reports(
+    temp_reports: list[tuple[Path, ProcessingSource]] | None,
+    temp_report_paths: list[Path] | None,
+) -> list[tuple[Path, ProcessingSource]]:
+    """Normalize legacy and tuple-based temporary report inputs.
+
+    Returns:
+        list[tuple[Path, ProcessingSource]]: Unified temporary report tuples.
+    """
+    normalized_reports = list(temp_reports or [])
+    if temp_report_paths is not None:
+        for temp_path in temp_report_paths:
+            normalized_reports.append((temp_path, ProcessingSource(source=temp_path, video_id="")))
+    return normalized_reports
+
+
+def _load_species_entries_for_report(temp_path: Path, source: ProcessingSource) -> list[dict[str, Any]]:
+    """Load and enrich species entries from one temporary JSON report.
+
+    Returns:
+        list[dict[str, Any]]: Enriched entries from the temporary report.
+    """
+    if not temp_path.exists():
+        return []
+    try:
+        with temp_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for entry in data.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        enriched_entry = dict(entry)
+        if source.video_id:
+            enriched_entry.setdefault("video_id", source.video_id)
+        if str(source.source):
+            enriched_entry.setdefault("source_video_path", str(source.source))
+        entries.append(enriched_entry)
+    return entries
+
+
+def merge_species_classification_reports(
     temp_report_paths: list[Path] | None = None,
     final_report_path: Path | None = None,
     temp_reports: list[tuple[Path, ProcessingSource]] | None = None,
@@ -564,81 +609,92 @@ def merge_species_classification_reports(  # noqa: C901
     """
     if final_report_path is None:
         return
-    if temp_reports is None:
-        temp_reports = []
-    if temp_report_paths is not None:
-        # Backward-compatible path-only mode used by tests.
-        for temp_path in temp_report_paths:
-            temp_reports.append((temp_path, ProcessingSource(source=temp_path, video_id="")))
+
+    resolved_temp_reports = _build_temp_reports(temp_reports, temp_report_paths)
 
     all_entries: list[dict[str, Any]] = []
-    for temp_path, source in temp_reports:
-        if not temp_path.exists():
-            continue
-        try:
-            with temp_path.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-        except (json.JSONDecodeError, OSError):
-            continue
-        for entry in data.get("entries", []):
-            if not isinstance(entry, dict):
-                continue
-            enriched_entry = dict(entry)
-            if source.video_id:
-                enriched_entry.setdefault("video_id", source.video_id)
-            if str(source.source):
-                enriched_entry.setdefault("source_video_path", str(source.source))
-            all_entries.append(enriched_entry)
+    for temp_path, source in resolved_temp_reports:
+        all_entries.extend(_load_species_entries_for_report(temp_path, source))
 
     final_report_path.parent.mkdir(parents=True, exist_ok=True)
     with final_report_path.open("w", encoding="utf-8") as handle:
         json.dump({"entries": all_entries}, handle, indent=2)
 
 
-def merge_megadetector_reports(  # noqa: C901
+def _load_json_payload(path: Path) -> dict[str, Any] | None:
+    """Load a JSON payload from disk and return None when unavailable.
+
+    Returns:
+        dict[str, Any] | None: Parsed JSON object payload, or None.
+    """
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _merge_megadetector_non_images(merged_payload: dict[str, Any], source_payload: dict[str, Any]) -> None:
+    """Merge top-level MegaDetector metadata fields except image rows."""
+    for key, value in source_payload.items():
+        if key == "images":
+            continue
+        if key not in merged_payload:
+            merged_payload[key] = value
+
+
+def _enrich_megadetector_image(image: dict[str, Any], source: ProcessingSource) -> dict[str, Any]:
+    """Attach source metadata and canonicalized file field to one image row.
+
+    Returns:
+        dict[str, Any]: Enriched image entry.
+    """
+    enriched_image = dict(image)
+    if source.video_id:
+        enriched_image.setdefault("video_id", source.video_id)
+    if str(source.source):
+        enriched_image.setdefault("source_video_path", str(source.source))
+    file_value = enriched_image.get("file")
+    if isinstance(file_value, str) and file_value:
+        enriched_image["file_original"] = file_value
+        if source.video_id:
+            enriched_image["file"] = f"{source.video_id}/{file_value}"
+    return enriched_image
+
+
+def _merge_megadetector_images(
+    merged_payload: dict[str, Any],
+    source_payload: dict[str, Any],
+    source: ProcessingSource,
+) -> None:
+    """Merge and enrich image rows from one MegaDetector payload."""
+    images = source_payload.get("images", [])
+    if not isinstance(images, list):
+        return
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        merged_payload["images"].append(_enrich_megadetector_image(image, source))
+
+
+def merge_megadetector_reports(
     final_report_path: Path,
     temp_reports: list[tuple[Path, ProcessingSource]] | None = None,
     temp_report_paths: list[Path] | None = None,
 ) -> None:
     """Merge temporary MegaDetector reports into a single final JSON file."""
     merged_payload: dict[str, Any] = {"images": []}
-    if temp_reports is None:
-        temp_reports = []
-    if temp_report_paths is not None:
-        for temp_path in temp_report_paths:
-            temp_reports.append((temp_path, ProcessingSource(source=temp_path, video_id="")))
+    resolved_temp_reports = _build_temp_reports(temp_reports, temp_report_paths)
 
-    for temp_path, source in temp_reports:
-        if not temp_path.exists():
+    for temp_path, source in resolved_temp_reports:
+        data = _load_json_payload(temp_path)
+        if data is None:
             continue
-        try:
-            with temp_path.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        for key, value in data.items():
-            if key == "images":
-                continue
-            if key not in merged_payload:
-                merged_payload[key] = value
-
-        images = data.get("images", [])
-        if isinstance(images, list):
-            for image in images:
-                if not isinstance(image, dict):
-                    continue
-                enriched_image = dict(image)
-                if source.video_id:
-                    enriched_image.setdefault("video_id", source.video_id)
-                if str(source.source):
-                    enriched_image.setdefault("source_video_path", str(source.source))
-                file_value = enriched_image.get("file")
-                if isinstance(file_value, str) and file_value:
-                    enriched_image["file_original"] = file_value
-                    if source.video_id:
-                        enriched_image["file"] = f"{source.video_id}/{file_value}"
-                merged_payload["images"].append(enriched_image)
+        _merge_megadetector_non_images(merged_payload, data)
+        _merge_megadetector_images(merged_payload, data, source)
 
     final_report_path.parent.mkdir(parents=True, exist_ok=True)
     with final_report_path.open("w", encoding="utf-8") as handle:
@@ -714,6 +770,34 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
         )
         logger.info(
             "Catalog ingestion complete: videos=%s new_canonical_originals=%s new_videos=%s",
+            ingested_count,
+            newly_persisted_count,
+            len(newly_discovered_sources),
+        )
+        return newly_discovered_sources
+    if mode == "reprocess-input":
+        discovered_videos = validate_and_find_videos(paths.input_dir, config.recursive)
+        deleted_records, deleted_files = reset_input_videos_for_reingest(
+            metadata_db_path=paths.metadata_db_path,
+            input_videos=discovered_videos,
+        )
+        logger.info(
+            "Reset %s input video catalog record(s) and %s canonical file(s) before re-ingest",
+            deleted_records,
+            deleted_files,
+        )
+        ingested_count, newly_persisted_count, newly_discovered_sources = ingest_videos_into_catalog(
+            videos=discovered_videos,
+            canonical_videos_dir=paths.canonical_videos_dir,
+            metadata_db_path=paths.metadata_db_path,
+            camera_date_profile=(
+                config.camera_date_profile
+                if config.capture_date_source == "camera_overlay"
+                else None
+            ),
+        )
+        logger.info(
+            "Re-ingested input videos as new records: videos=%s new_canonical_originals=%s new_videos=%s",
             ingested_count,
             newly_persisted_count,
             len(newly_discovered_sources),
@@ -971,16 +1055,13 @@ def _build_video_id_maps(
     return bucketed_video_paths_final, video_ids_by_output_path
 
 
-def repair_canonical_sources_from_input(  # noqa: C901
+def _partition_sources_by_canonical_hash(
     processing_sources: list[ProcessingSource],
-    input_dir: Path,
-    recursive: bool,
-    canonical_videos_dir: Path,
-) -> tuple[list[ProcessingSource], int]:
-    """Repair corrupted canonical source files by matching hashes from input videos.
+) -> tuple[list[ProcessingSource], list[ProcessingSource]]:
+    """Split sources into hash-matching valid sources and corrupted sources.
 
     Returns:
-        tuple[list[ProcessingSource], int]: Repaired/validated sources and repaired count.
+        tuple[list[ProcessingSource], list[ProcessingSource]]: Valid and corrupted source lists.
     """
     corrupted_sources: list[ProcessingSource] = []
     valid_sources: list[ProcessingSource] = []
@@ -996,11 +1077,15 @@ def repair_canonical_sources_from_input(  # noqa: C901
             valid_sources.append(source)
         else:
             corrupted_sources.append(source)
+    return valid_sources, corrupted_sources
 
-    if not corrupted_sources:
-        return valid_sources, 0
 
-    needed_ids = {source.video_id for source in corrupted_sources}
+def _build_input_video_hash_map(input_dir: Path, recursive: bool, needed_ids: set[str]) -> dict[str, Path]:
+    """Map needed video IDs to matching videos discovered under input_dir.
+
+    Returns:
+        dict[str, Path]: Video ID to discovered input path map.
+    """
     discovered_videos = find_videos(input_dir, recursive)
     input_by_hash: dict[str, Path] = {}
     for candidate in discovered_videos:
@@ -1010,9 +1095,23 @@ def repair_canonical_sources_from_input(  # noqa: C901
             continue
         if candidate_hash in needed_ids and candidate_hash not in input_by_hash:
             input_by_hash[candidate_hash] = candidate
+    return input_by_hash
 
+
+def _repair_corrupted_sources(
+    corrupted_sources: list[ProcessingSource],
+    canonical_videos_dir: Path,
+    input_by_hash: dict[str, Path],
+) -> tuple[list[ProcessingSource], int, int]:
+    """Repair corrupted sources using matched input files.
+
+    Returns:
+        tuple[list[ProcessingSource], int, int]: Repaired sources, repaired count, unrepaired count.
+    """
+    repaired_sources: list[ProcessingSource] = []
     repaired_count = 0
     unrepaired_count = 0
+
     for source in corrupted_sources:
         replacement = input_by_hash.get(source.video_id)
         if replacement is None:
@@ -1029,7 +1128,35 @@ def repair_canonical_sources_from_input(  # noqa: C901
             source=replacement,
         )
         repaired_count += 1
-        valid_sources.append(ProcessingSource(source=repaired_path, video_id=source.video_id))
+        repaired_sources.append(ProcessingSource(source=repaired_path, video_id=source.video_id))
+
+    return repaired_sources, repaired_count, unrepaired_count
+
+
+def repair_canonical_sources_from_input(
+    processing_sources: list[ProcessingSource],
+    input_dir: Path,
+    recursive: bool,
+    canonical_videos_dir: Path,
+) -> tuple[list[ProcessingSource], int]:
+    """Repair corrupted canonical source files by matching hashes from input videos.
+
+    Returns:
+        tuple[list[ProcessingSource], int]: Repaired/validated sources and repaired count.
+    """
+    valid_sources, corrupted_sources = _partition_sources_by_canonical_hash(processing_sources)
+
+    if not corrupted_sources:
+        return valid_sources, 0
+
+    needed_ids = {source.video_id for source in corrupted_sources}
+    input_by_hash = _build_input_video_hash_map(input_dir, recursive, needed_ids)
+    repaired_sources, repaired_count, unrepaired_count = _repair_corrupted_sources(
+        corrupted_sources=corrupted_sources,
+        canonical_videos_dir=canonical_videos_dir,
+        input_by_hash=input_by_hash,
+    )
+    valid_sources.extend(repaired_sources)
 
     if repaired_count > 0:
         logger.info("Repaired %s canonical source file(s) from input directory", repaired_count)

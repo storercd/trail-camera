@@ -142,6 +142,31 @@ def video_exists(db_path: Path, video_id: str) -> bool:
     return row is not None
 
 
+def delete_video_records(db_path: Path, video_ids: set[str]) -> int:
+    """Delete catalog rows for the given video IDs.
+
+    Args:
+        db_path: Metadata sqlite database path.
+        video_ids: Canonical video identifiers to delete.
+
+    Returns:
+        int: Number of video rows deleted.
+    """
+    if not video_ids:
+        return 0
+
+    deleted_count = 0
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        for video_id in sorted(video_ids):
+            deleted_count += connection.execute(
+                "DELETE FROM videos WHERE video_id=?",
+                (video_id,),
+            ).rowcount
+        connection.commit()
+    return deleted_count
+
+
 def get_processing_bucket(db_path: Path, video_id: str) -> str | None:
     """Return the current processing bucket for a video ID.
 

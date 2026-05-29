@@ -18,6 +18,7 @@ from processing_modes import (
     ingest_videos_into_catalog,
     load_reprocess_sources,
     record_processing_results,
+    reset_input_videos_for_reingest,
 )
 
 
@@ -89,6 +90,44 @@ def test_ingest_videos_into_catalog_should_not_repersist_known_uninteresting(
     assert second_new_persisted == 0
     assert second_new_sources == []
     assert not stored_original.exists()
+
+
+def test_reset_input_videos_for_reingest_should_delete_matching_catalog_rows(
+    tmp_path: Path,
+) -> None:
+    """Reset matching input videos so they can be ingested again as new."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    source = input_dir / "PICT0001.AVI"
+    source.write_bytes(b"video-content")
+    canonical_root = tmp_path / "videos"
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    ingest_videos_into_catalog(
+        videos=[source],
+        canonical_videos_dir=canonical_root,
+        metadata_db_path=db_path,
+    )
+
+    deleted_records, deleted_files = reset_input_videos_for_reingest(
+        metadata_db_path=db_path,
+        input_videos=[source],
+    )
+
+    assert deleted_records == 1
+    assert deleted_files == 1
+    assert get_stored_original_records(db_path) == []
+
+    second_ingested, second_new_persisted, second_new_sources = ingest_videos_into_catalog(
+        videos=[source],
+        canonical_videos_dir=canonical_root,
+        metadata_db_path=db_path,
+    )
+
+    assert second_ingested == 1
+    assert second_new_persisted == 1
+    assert len(second_new_sources) == 1
 
 
 def test_load_reprocess_sources_should_skip_missing_files(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ from file_ops import (
 from metadata_store import (
     ProcessingStateRecord,
     VideoCatalogRecord,
+    delete_video_records,
     get_processing_bucket,
     get_stored_original_records,
     sync_artifact_path,
@@ -36,6 +37,44 @@ class ProcessingSource:
 
     source: Path
     video_id: str
+
+
+def reset_input_videos_for_reingest(
+    metadata_db_path: Path,
+    input_videos: list[Path],
+) -> tuple[int, int]:
+    """Delete catalog rows and canonical originals for matching input videos.
+
+    Args:
+        metadata_db_path: SQLite metadata catalog path.
+        input_videos: Videos discovered in the input folder.
+
+    Returns:
+        tuple[int, int]: Deleted catalog row count and deleted canonical file count.
+    """
+    stored_records = dict(get_stored_original_records(metadata_db_path))
+    video_ids_to_reset: set[str] = set()
+    stored_originals_to_delete: dict[str, Path] = {}
+
+    for video_path in input_videos:
+        try:
+            video_id = compute_sha256(video_path)
+        except OSError:
+            continue
+        stored_original = stored_records.get(video_id)
+        if stored_original is None:
+            continue
+        video_ids_to_reset.add(video_id)
+        stored_originals_to_delete[video_id] = stored_original
+
+    deleted_records = delete_video_records(metadata_db_path, video_ids_to_reset)
+    deleted_files = 0
+    for stored_original in stored_originals_to_delete.values():
+        if stored_original.exists() and stored_original.is_file():
+            stored_original.unlink()
+            deleted_files += 1
+
+    return deleted_records, deleted_files
 
 
 def ingest_videos_into_catalog(

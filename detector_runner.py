@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 from megadetector.detection.process_video import ProcessVideoOptions, process_videos
 
 logger = logging.getLogger(__name__)
+
+
+def _run_process_videos_quietly(options: ProcessVideoOptions) -> None:
+    """Run MegaDetector while suppressing third-party console noise."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            process_videos(options)
 
 
 def load_results(results_path: Path) -> dict[str, Any]:
@@ -59,5 +70,8 @@ def run_detector(
     # Always recurse through nested folders for directory inputs.
     options.recursive = effective_recursive
     options.verbose = verbose
-    process_videos(options)
+    if verbose:
+        process_videos(options)
+    else:
+        _run_process_videos_quietly(options)
     logger.debug("MegaDetector run complete. Results written to %s", results_file)
