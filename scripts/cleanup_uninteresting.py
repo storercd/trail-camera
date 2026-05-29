@@ -27,7 +27,11 @@ class CleanupTarget:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    Returns:
+        argparse.Namespace: Parsed cleanup CLI arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Mark configured uninteresting videos and remove generated output artifacts.",
     )
@@ -83,7 +87,11 @@ def load_cleanup_targets(
     excluded_categories: set[str],
     uninteresting_labels: set[str],
 ) -> list[CleanupTarget]:
-    """Fetch videos matching configured uninteresting filters."""
+    """Fetch videos matching configured uninteresting filters.
+
+    Returns:
+        list[CleanupTarget]: Matched catalog rows and derivative artifact counts.
+    """
     where_clause, params = _build_where_clause(excluded_categories, uninteresting_labels)
     if not where_clause:
         return []
@@ -138,7 +146,11 @@ def split_targets_by_pending_state(
     targets: list[CleanupTarget],
     save_uninteresting_files: bool,
 ) -> tuple[list[CleanupTarget], list[CleanupTarget]]:
-    """Split targets into pending-work and already-cleaned buckets."""
+    """Split targets into pending-work and already-cleaned buckets.
+
+    Returns:
+        tuple[list[CleanupTarget], list[CleanupTarget]]: Pending targets and already-cleaned targets.
+    """
     pending: list[CleanupTarget] = []
     already_cleaned: list[CleanupTarget] = []
     for target in targets:
@@ -168,7 +180,13 @@ def cleanup_targets(db_path: Path, targets: list[CleanupTarget], save_uninterest
             artifact_rows = connection.execute(
                 """
                 SELECT path FROM artifacts
-                WHERE video_id = ? AND artifact_type IN ('bucketed_video', 'report_video', 'preview_image', 'species_crop')
+                WHERE video_id = ?
+                  AND artifact_type IN (
+                      'bucketed_video',
+                      'report_video',
+                      'preview_image',
+                      'species_crop'
+                  )
                 """,
                 (video_id,),
             ).fetchall()
@@ -180,7 +198,13 @@ def cleanup_targets(db_path: Path, targets: list[CleanupTarget], save_uninterest
             connection.execute(
                 """
                 DELETE FROM artifacts
-                WHERE video_id = ? AND artifact_type IN ('bucketed_video', 'report_video', 'preview_image', 'species_crop')
+                WHERE video_id = ?
+                  AND artifact_type IN (
+                      'bucketed_video',
+                      'report_video',
+                      'preview_image',
+                      'species_crop'
+                  )
                 """,
                 (video_id,),
             )
@@ -204,7 +228,11 @@ def cleanup_targets(db_path: Path, targets: list[CleanupTarget], save_uninterest
 
 
 def main() -> int:
-    """Run configured uninteresting cleanup against the existing catalog."""
+    """Run configured uninteresting cleanup against the existing catalog.
+
+    Returns:
+        int: Process exit code.
+    """
     args = parse_args()
     config_path = Path(args.config)
     config = load_config(config_path)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,8 @@ from reporting import (
     write_html_summary_from_catalog,
     write_sqlite_snapshot_export,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -95,7 +98,24 @@ def parse_args() -> argparse.Namespace:
             "(default: new-only)"
         ),
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        type=str.upper,
+        help="Logging verbosity (default: INFO)",
+    )
     return parser.parse_args()
+
+
+def configure_logging(level_name: str) -> None:
+    """Configure root logger for the process.
+
+    Args:
+        level_name: Desired log level name (for example, INFO or DEBUG).
+    """
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(level=level, format="%(levelname)s %(message)s", force=True)
 
 
 def _load_species_entries_by_video_id(
@@ -151,14 +171,22 @@ def _extract_species_top_fields(entry: dict[str, Any]) -> tuple[str | None, floa
 
 
 def _normalize_species_labels(labels: list[str]) -> set[str]:
-    """Normalize species labels for case-insensitive matching."""
+    """Normalize species labels for case-insensitive matching.
+
+    Returns:
+        set[str]: Normalized lowercased labels with surrounding whitespace removed.
+    """
     return {label.strip().lower() for label in labels if label.strip()}
 
 
 def _load_species_top_label_by_output_path(
     species_classification_report_path: Path,
 ) -> dict[str, str]:
-    """Load top species labels keyed by source_relative_path."""
+    """Load top species labels keyed by source_relative_path.
+
+    Returns:
+        dict[str, str]: Source-relative path to top species label mapping.
+    """
     if not species_classification_report_path.exists():
         return {}
     try:
@@ -522,8 +550,7 @@ def process_single_video(
     )
 
 
-
-def merge_species_classification_reports(
+def merge_species_classification_reports(  # noqa: C901
     temp_report_paths: list[Path] | None = None,
     final_report_path: Path | None = None,
     temp_reports: list[tuple[Path, ProcessingSource]] | None = None,
@@ -568,7 +595,7 @@ def merge_species_classification_reports(
         json.dump({"entries": all_entries}, handle, indent=2)
 
 
-def merge_megadetector_reports(
+def merge_megadetector_reports(  # noqa: C901
     final_report_path: Path,
     temp_reports: list[tuple[Path, ProcessingSource]] | None = None,
     temp_report_paths: list[Path] | None = None,
@@ -618,19 +645,23 @@ def merge_megadetector_reports(
         json.dump(merged_payload, handle, indent=2)
 
 
-
-
 def _print_runtime_header(paths: Any, config: Any, mode: str) -> None:
-    """Print run configuration for traceability."""
-    print(f"Using config file: {paths.config_path}")
-    print(f"Input directory: {paths.input_dir}")
-    print(f"Output root directory: {paths.output_root_dir}")
-    print(f"Run output directory: {paths.output_dir}")
-    print(f"Pipeline version: {config.pipeline_version}")
-    print(f"Metadata database: {paths.metadata_db_path}")
-    print(f"Processing mode: {mode}")
+    """Log run configuration and startup context."""
+    logger.info(
+        "Run start: mode=%s input=%s output=%s",
+        mode,
+        paths.input_dir,
+        paths.output_dir,
+    )
+    logger.debug("Config file: %s", paths.config_path)
+    logger.debug("Output root directory: %s", paths.output_root_dir)
+    logger.debug("Pipeline version: %s", config.pipeline_version)
+    logger.debug("Metadata database: %s", paths.metadata_db_path)
     if mode != "report-only":
-        print("Processing model: per-video streaming")
+        logger.debug("Processing model: per-video streaming")
+    logger.debug("MegaDetector model: %s", config.model)
+    logger.debug("Frame sample: %s", config.frame_sample)
+    logger.debug("Detector verbose: %s", config.detector_verbose)
 
 
 def _write_optional_reports(paths: Any, config: Any) -> None:
@@ -643,24 +674,24 @@ def _write_optional_reports(paths: Any, config: Any) -> None:
             run_output_dir=paths.output_dir,
             metadata_db_path=paths.metadata_db_path,
         )
-        print(f"Wrote summary metadata to {paths.summary_path}")
+        logger.info("Wrote summary metadata: %s", paths.summary_path)
     else:
-        print("JSON exports disabled by config")
+        logger.debug("JSON exports disabled by config")
 
     if not config.generate_html_report:
-        print("HTML summary disabled by config")
+        logger.debug("HTML summary disabled by config")
         return
 
     write_html_summary_from_catalog(
         html_summary_path=paths.html_summary_path,
         metadata_db_path=paths.metadata_db_path,
     )
-    print(f"Wrote HTML summary to {paths.html_summary_path}")
+    logger.info("Wrote HTML summary: %s", paths.html_summary_path)
     if config.auto_open_html_report:
         if open_file_in_default_app(paths.html_summary_path):
-            print(f"Opened HTML summary in default app: {paths.html_summary_path}")
+            logger.info("Opened HTML summary in default app: %s", paths.html_summary_path)
         else:
-            print(f"Failed to open HTML summary automatically: {paths.html_summary_path}")
+            logger.warning("Failed to open HTML summary automatically: %s", paths.html_summary_path)
 
 
 def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> list[ProcessingSource]:
@@ -681,11 +712,11 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
                 else None
             ),
         )
-        print(
-            "Catalog ingestion complete. "
-            f"videos={ingested_count}, "
-            f"new_canonical_originals={newly_persisted_count}, "
-            f"new_videos={len(newly_discovered_sources)}"
+        logger.info(
+            "Catalog ingestion complete: videos=%s new_canonical_originals=%s new_videos=%s",
+            ingested_count,
+            newly_persisted_count,
+            len(newly_discovered_sources),
         )
         return newly_discovered_sources
     if mode == "reprocess-existing":
@@ -694,17 +725,18 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             current_pipeline_version=config.pipeline_version,
             filter_mode="existing",
         )
-        print(
-            f"Loaded {len(sources)} outdated or failed videos for reprocessing "
-            f"(current pipeline version: {config.pipeline_version})"
+        logger.info(
+            "Loaded %s outdated/failed videos for reprocessing",
+            len(sources),
         )
+        logger.debug("Current pipeline version: %s", config.pipeline_version)
         return sources
     if mode == "force-reprocess":
         sources = load_reprocess_sources(
             metadata_db_path=paths.metadata_db_path,
             filter_mode="force",
         )
-        print(f"Loaded {len(sources)} canonical originals for force reprocessing")
+        logger.info("Loaded %s canonical originals for force reprocessing", len(sources))
         return sources
     return []
 
@@ -716,7 +748,7 @@ def _resolve_effective_move_files(mode: str, move_files: bool) -> bool:
         bool: Effective move_files setting for the current mode.
     """
     if mode in ("reprocess-existing", "force-reprocess") and move_files:
-        print(f"Disabling move_files for {mode} mode")
+        logger.info("Disabling move_files for %s mode", mode)
         return False
     return move_files
 
@@ -810,16 +842,19 @@ def _accumulate_preview_stats(target: PreviewExtractionStats, source: PreviewExt
 
 
 def _print_video_result(source: ProcessingSource, decisions: list[VideoDecision]) -> None:
-    """Print one-line completion status for a processed source."""
+    """Log one-line completion status for a processed source."""
     if not decisions:
-        print(f"  [✓] {source.source.name} ({source.video_id[:8]}...) → no animals detected")
+        logger.info("  [OK] %s (%s...) -> no animals detected", source.source.name, source.video_id[:8])
         return
     decision = decisions[0]
     confidence = decision.top_confidence
     confidence_suffix = f" (confidence: {confidence:.3f})" if confidence is not None else ""
-    print(
-        f"  [✓] {source.source.name} ({source.video_id[:8]}...) → "
-        f"{decision.bucket}{confidence_suffix}"
+    logger.info(
+        "  [OK] %s (%s...) -> %s%s",
+        source.source.name,
+        source.video_id[:8],
+        decision.bucket,
+        confidence_suffix,
     )
 
 
@@ -846,9 +881,12 @@ def _process_sources_sequential(
         accumulator.sources_by_index = {index: source for index, source in indexed_sources}
 
         for index, source in indexed_sources:
-            print(
-                f"[{index}/{len(processing_sources)}] Processing {source.source.name} "
-                f"({source.video_id[:8]}...)"
+            logger.info(
+                "[%s/%s] Processing %s (%s...)",
+                index,
+                len(processing_sources),
+                source.source.name,
+                source.video_id[:8],
             )
             try:
                 (
@@ -873,7 +911,7 @@ def _process_sources_sequential(
                     video_index=index,
                 )
             except Exception as exc:
-                print(f"  [✗] Error processing {source.source.name}: {exc}")
+                logger.exception("  [ERR] Error processing %s: %s", source.source.name, exc)
                 raise
 
             accumulator.md_results_paths_by_index[index] = per_video_md_results_path
@@ -933,7 +971,7 @@ def _build_video_id_maps(
     return bucketed_video_paths_final, video_ids_by_output_path
 
 
-def repair_canonical_sources_from_input(
+def repair_canonical_sources_from_input(  # noqa: C901
     processing_sources: list[ProcessingSource],
     input_dir: Path,
     recursive: bool,
@@ -979,9 +1017,9 @@ def repair_canonical_sources_from_input(
         replacement = input_by_hash.get(source.video_id)
         if replacement is None:
             unrepaired_count += 1
-            print(
-                f"Warning: canonical source hash mismatch for {source.video_id[:8]}... "
-                "and no matching input video found"
+            logger.warning(
+                "Canonical source hash mismatch for %s... and no matching input video found",
+                source.video_id[:8],
             )
             continue
 
@@ -994,9 +1032,9 @@ def repair_canonical_sources_from_input(
         valid_sources.append(ProcessingSource(source=repaired_path, video_id=source.video_id))
 
     if repaired_count > 0:
-        print(f"Repaired {repaired_count} canonical source file(s) from input directory")
+        logger.info("Repaired %s canonical source file(s) from input directory", repaired_count)
     if unrepaired_count > 0:
-        print(f"Skipped {unrepaired_count} unrepaired canonical source file(s)")
+        logger.warning("Skipped %s unrepaired canonical source file(s)", unrepaired_count)
 
     return valid_sources, repaired_count
 
@@ -1008,6 +1046,7 @@ def main() -> int:
         int: Process exit code.
     """
     args = parse_args()
+    configure_logging(args.log_level)
     config = load_config(Path(args.config))
     paths = build_run_paths(Path(args.config), config)
     _print_runtime_header(paths, config, args.mode)
@@ -1017,12 +1056,12 @@ def main() -> int:
 
     if args.mode == "report-only":
         _write_optional_reports(paths, config)
-        print("Report generation complete from sqlite catalog and artifact files.")
+        logger.info("Report generation complete from sqlite catalog and artifact files")
         return 0
 
     processing_sources = _load_processing_sources_for_mode(args.mode, paths, config)
     if not processing_sources:
-        print(f"No videos selected for processing in mode '{args.mode}'. Exiting.")
+        logger.info("No videos selected for processing in mode '%s'. Exiting.", args.mode)
         return 0
 
     if args.mode == "reprocess-existing":
@@ -1032,7 +1071,7 @@ def main() -> int:
             recursive=config.recursive,
             canonical_videos_dir=paths.canonical_videos_dir,
         )
-        print(f"Using {len(processing_sources)} validated canonical originals for reprocessing")
+        logger.info("Using %s validated canonical originals for reprocessing", len(processing_sources))
 
     categories = resolve_interesting_categories(config)
     effective_move_files = _resolve_effective_move_files(args.mode, config.move_files)
@@ -1087,9 +1126,10 @@ def main() -> int:
             preview_paths=accumulator.all_preview_paths,
             crop_paths=accumulator.all_crop_paths,
         )
-        print(
-            "Applied uninteresting species filter. "
-            f"demoted={len(demoted_output_paths)}, removed_files={deleted_files}"
+        logger.info(
+            "Applied uninteresting species filter: demoted=%s removed_files=%s",
+            len(demoted_output_paths),
+            deleted_files,
         )
 
     bucketed_video_paths_final, video_ids_by_output_path = _build_video_id_maps(
@@ -1116,27 +1156,28 @@ def main() -> int:
         video_ids_by_output_path=video_ids_by_output_path,
     )
 
-    print(
-        "Preview extraction complete. "
-        f"candidates={accumulator.aggregated_preview_stats.total_candidates}, "
-        f"extracted={accumulator.aggregated_preview_stats.extracted}, "
-        f"skipped={accumulator.aggregated_preview_stats.skipped}, "
-        f"failed={accumulator.aggregated_preview_stats.failed}, "
-        f"classified={accumulator.aggregated_preview_stats.classified}, "
-        f"classification_failed={accumulator.aggregated_preview_stats.classification_failed}"
+    logger.info(
+        "Preview extraction complete: candidates=%s extracted=%s skipped=%s failed=%s "
+        "classified=%s classification_failed=%s",
+        accumulator.aggregated_preview_stats.total_candidates,
+        accumulator.aggregated_preview_stats.extracted,
+        accumulator.aggregated_preview_stats.skipped,
+        accumulator.aggregated_preview_stats.failed,
+        accumulator.aggregated_preview_stats.classified,
+        accumulator.aggregated_preview_stats.classification_failed,
     )
     _write_optional_reports(paths, config)
 
     counts = compute_bucket_counts(accumulator.all_decisions)
-    print(
-        "Finished processing all videos. "
-        f"interesting={counts['interesting']}, "
-        f"uninteresting={counts['uninteresting']}, "
-        f"failed={counts['failed']}"
+    logger.info(
+        "Finished processing all videos: interesting=%s uninteresting=%s failed=%s",
+        counts["interesting"],
+        counts["uninteresting"],
+        counts["failed"],
     )
-    print(f"Raw MegaDetector output: {paths.md_results_path}")
+    logger.debug("Raw MegaDetector output: %s", paths.md_results_path)
     if config.write_json_exports:
-        print(f"Summary report: {paths.summary_path}")
+        logger.debug("Summary report: %s", paths.summary_path)
     return 0
 
 

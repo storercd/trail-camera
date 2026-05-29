@@ -12,7 +12,7 @@ DEFAULT_INTERESTING_CATEGORIES = {"1", "2", "3"}
 DEFAULT_CONFIG_PATH = "process_videos.config.yaml"
 
 
-def load_config(config_path: Path) -> AppConfig:
+def load_config(config_path: Path) -> AppConfig:  # noqa: C901
     """Load and validate application settings from a YAML file.
 
     Args:

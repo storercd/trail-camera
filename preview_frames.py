@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import cv2
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -365,7 +368,7 @@ def run_speciesnet_postprocessing(
         classifications = {}
         candidates_by_path = {}
         classification_failed = len(extracted_paths)
-        print(f"SpeciesNet classification failed: {exc}")
+        logger.warning("SpeciesNet classification failed: %s", exc)
         classified = 0
 
     renamed_paths: dict[Path, Path] = {
@@ -422,7 +425,7 @@ def run_speciesnet_postprocessing(
             "entries": report_entries,
         }
         write_species_classification_report(species_classification_report_path, report_payload)
-        print(f"Wrote species classification report: {species_classification_report_path}")
+        logger.debug("Wrote species classification report: %s", species_classification_report_path)
 
     return classified, classification_failed
 
@@ -494,11 +497,11 @@ def extract_top_frames(
 
         if status == "skipped":
             skipped += 1
-            print(message)
+            logger.debug(message)
             continue
         if status == "failed":
             failed += 1
-            print(message)
+            logger.debug(message)
             continue
 
         extracted += 1
@@ -507,10 +510,10 @@ def extract_top_frames(
         extracted_paths.append(output_image)
         classification_targets[output_image.resolve()] = classification_target
         source_paths_by_preview[output_image.resolve()] = record.output_relative_path
-        print(message)
+        logger.debug(message)
 
     if classify_with_speciesnet and extracted_paths:
-        print("Running SpeciesNet classification on extracted previews")
+        logger.debug("Running SpeciesNet classification on extracted previews")
         classified, classification_failed = run_speciesnet_postprocessing(
             extracted_paths=extracted_paths,
             classification_targets=classification_targets,

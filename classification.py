@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from file_ops import build_dated_relative_output_path, copy_or_move
 from pipeline_models import VideoDecision
+
+logger = logging.getLogger(__name__)
 
 
 def build_clipped_log_line(
@@ -58,6 +61,7 @@ def analyze_video_result(
         image_entry: One image record from the MegaDetector output.
         interesting_categories: Category IDs treated as interesting.
         threshold: Minimum confidence for interesting detections.
+        excluded_megadetector_categories: Category IDs ignored when scoring interesting detections.
 
     Returns:
         VideoDecision: Classification and summary fields for the video.
@@ -244,10 +248,7 @@ def classify_and_sort_videos(
         should_write_file = decision.bucket != "uninteresting" or save_uninteresting_files
 
         if not should_write_file:
-            print(
-                f"Skipped {decision.relative_path}: "
-                "uninteresting output disabled"
-            )
+            logger.debug("Skipped %s: uninteresting output disabled", decision.relative_path)
             decisions.append(decision)
             continue
 
@@ -296,7 +297,7 @@ def classify_and_sort_videos(
                     )
                     # Remove [1/1] prefix for per-video streaming mode
                     clipped_msg = clipped_msg.replace("[1/1] ", "")
-                    print(clipped_msg)
+                    logger.debug(clipped_msg)
                 else:
                     written_path = copy_or_move(source, destination, move=move_files)
                     maybe_update_output_relative_path(
@@ -306,9 +307,13 @@ def classify_and_sort_videos(
                         bucket_output_paths=bucket_output_paths,
                     )
                     action = "Moved" if move_files else "Copied"
-                    print(
-                        f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket} "
-                        "(clip failed, saved full video)"
+                    logger.debug(
+                        "[%s/%s] %s %s -> %s (clip failed, saved full video)",
+                        index,
+                        total_entries,
+                        action,
+                        decision.output_relative_path,
+                        decision.bucket,
                     )
             else:
                 written_path = copy_or_move(source, destination, move=move_files)
@@ -319,9 +324,21 @@ def classify_and_sort_videos(
                     bucket_output_paths=bucket_output_paths,
                 )
                 action = "Moved" if move_files else "Copied"
-                print(f"[{index}/{total_entries}] {action} {decision.output_relative_path} -> {decision.bucket}")
+                logger.debug(
+                    "[%s/%s] %s %s -> %s",
+                    index,
+                    total_entries,
+                    action,
+                    decision.output_relative_path,
+                    decision.bucket,
+                )
         else:
-            print(f"[{index}/{total_entries}] Source missing for {decision.relative_path}; skipping copy/move")
+            logger.warning(
+                "[%s/%s] Source missing for %s; skipping copy/move",
+                index,
+                total_entries,
+                decision.relative_path,
+            )
         decisions.append(decision)
 
     return decisions

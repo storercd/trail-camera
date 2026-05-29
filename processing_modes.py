@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,8 @@ from metadata_store import (
     video_exists,
 )
 from pipeline_models import VideoDecision
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,9 +62,11 @@ def ingest_videos_into_catalog(
     progress_every = 10
     for index, source in enumerate(videos, start=1):
         if index == 1 or index % progress_every == 0 or index == total_videos:
-            print(
-                f"[ingest {index}/{total_videos}] hashing and cataloging {source.name}",
-                flush=True,
+            logger.info(
+                "[ingest %s/%s] hashing and cataloging %s",
+                index,
+                total_videos,
+                source.name,
             )
 
         video_id = compute_sha256(source)

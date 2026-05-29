@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import shutil
 from collections import Counter
@@ -20,6 +21,9 @@ VIDEO_EXTENSIONS = {
     ".wmv",
     ".m4v",
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_video_storage_dir(videos_root_dir: Path, video_id: str) -> Path:
@@ -408,7 +412,7 @@ def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
         raise SystemExit(f"Input directory does not exist: {input_dir}")
 
     videos = find_videos(input_dir, recursive)
-    print(f"Found {len(videos)} video(s) to process")
+    logger.info("Found %s video(s) to process", len(videos))
     if not videos:
         raise SystemExit(f"No videos found in {input_dir}")
     return videos

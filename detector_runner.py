@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from megadetector.detection.process_video import ProcessVideoOptions, process_videos
+
+logger = logging.getLogger(__name__)
 
 
 def load_results(results_path: Path) -> dict[str, Any]:
@@ -41,9 +44,12 @@ def run_detector(
         verbose: Whether to enable MegaDetector verbose output.
     """
     effective_recursive = True
-    print(
-        "Starting MegaDetector run: "
-        f"input={input_dir}, model={model}, frame_sample={frame_sample}, recursive={effective_recursive}"
+    logger.debug(
+        "Starting MegaDetector run: input=%s model=%s frame_sample=%s recursive=%s",
+        input_dir,
+        model,
+        frame_sample,
+        effective_recursive,
     )
     options = ProcessVideoOptions()
     options.input_video_file = str(input_dir)
@@ -54,4 +60,4 @@ def run_detector(
     options.recursive = effective_recursive
     options.verbose = verbose
     process_videos(options)
-    print(f"MegaDetector run complete. Results written to {results_file}")
+    logger.debug("MegaDetector run complete. Results written to %s", results_file)
