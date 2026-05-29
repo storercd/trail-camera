@@ -148,6 +148,31 @@
             background: var(--warning-soft);
             color: var(--warning);
         }
+        .favorite-pill {
+            background: #fff1bf;
+            color: #805600;
+        }
+        .favorite-form {
+            margin: 0;
+        }
+        .favorite-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 10px;
+            border-radius: 9px;
+            border: 1px solid #b98900;
+            color: #805600;
+            background: #fff7d4;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .favorite-button.active {
+            background: #ffe48a;
+            border-color: #8f6400;
+            color: #6f4d00;
+        }
         .stats {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -208,6 +233,13 @@
                             {% endfor %}
                         </select>
                     </label>
+                    <label>Favorite
+                        <select name="is_favorite">
+                            <option value="">All</option>
+                            <option value="yes" {% if filters.is_favorite == 'yes' %}selected{% endif %}>Favorites Only</option>
+                            <option value="no" {% if filters.is_favorite == 'no' %}selected{% endif %}>Exclude Favorites</option>
+                        </select>
+                    </label>
                     <label>Species<input type="text" name="species" value="{{ filters.species }}" placeholder="dog, bird, squirrel"></label>
                     <label>Min Confidence<input type="number" min="0" max="1" step="0.001" name="min_confidence" value="{{ filters.min_confidence }}"></label>
                     <label>Max Confidence<input type="number" min="0" max="1" step="0.001" name="max_confidence" value="{{ filters.max_confidence }}"></label>
@@ -266,9 +298,14 @@
                                 <h2><a href="{{ url_for('video_detail', video_id=video.video_id) }}" style="color: inherit; text-decoration: none;">{{ video.display_name }}</a></h2>
                                 <div class="muted">{{ video.video_id[:12] }}{% if video.video_id|length > 12 %}...{% endif %}</div>
                             </div>
-                            {% if video.needs_reprocess %}
-                            <span class="pill warning">Needs Reprocess</span>
-                            {% endif %}
+                            <div>
+                                {% if video.is_favorite %}
+                                <span class="pill favorite-pill">★ Favorite</span>
+                                {% endif %}
+                                {% if video.needs_reprocess %}
+                                <span class="pill warning">Needs Reprocess</span>
+                                {% endif %}
+                            </div>
                         </div>
                         <div class="stats">
                             <div><strong>Species</strong>{{ video.top_label or 'unknown' }}</div>
@@ -280,6 +317,14 @@
                             <a href="{{ url_for('video_detail', video_id=video.video_id) }}">View Details</a>
                             {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Clip</a>{% endif %}
                             {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser Video</a>{% endif %}
+                            <form class="favorite-form" method="post" action="{{ url_for('favorite_video', video_id=video.video_id) }}">
+                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="current" value="{{ '1' if video.is_favorite else '0' }}">
+                                <input type="hidden" name="next" value="{{ current_url }}">
+                                <button class="favorite-button {% if video.is_favorite %}active{% endif %}" type="submit">
+                                    {% if video.is_favorite %}★ Favorited{% else %}☆ Favorite{% endif %}
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </article>

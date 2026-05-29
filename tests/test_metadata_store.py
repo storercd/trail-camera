@@ -14,6 +14,7 @@ from metadata_store import (
     get_stored_original_paths,
     get_stored_original_records,
     initialize_metadata_store,
+    set_video_favorite,
     sync_artifact_path,
     upsert_processing_state_record,
     upsert_species_classification_record,
@@ -42,6 +43,7 @@ def test_initialize_metadata_store_should_create_expected_tables(tmp_path: Path)
     assert _table_exists(db_path, "processing_state")
     assert _table_exists(db_path, "artifacts")
     assert _table_exists(db_path, "species_classifications")
+    assert _table_exists(db_path, "favorites")
 
 
 def test_initialize_metadata_store_should_fail_when_migration_missing(tmp_path: Path) -> None:
@@ -265,3 +267,31 @@ def test_species_classification_record_should_upsert_and_delete(tmp_path: Path) 
 
     snapshot_after_delete = fetch_catalog_snapshot(db_path)
     assert len(snapshot_after_delete["species_classifications"]) == 0
+
+
+def test_set_video_favorite_should_toggle_and_validate_video_id(tmp_path: Path) -> None:
+    """Persist and remove favorite records for known videos only."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    upsert_video_record(
+        db_path,
+        VideoCatalogRecord(
+            video_id="fav001",
+            original_filename="PICT0700.AVI",
+            capture_date="2026-05-05",
+            filesize_bytes=100,
+            source_ext=".avi",
+            stored_original_path="/tmp/videos/fa/v0/fav001/source.avi",
+        ),
+    )
+
+    assert set_video_favorite(db_path, "missing", True) is False
+    assert set_video_favorite(db_path, "fav001", True) is True
+
+    snapshot = fetch_catalog_snapshot(db_path)
+    assert len(snapshot["favorites"]) == 1
+    assert snapshot["favorites"][0]["video_id"] == "fav001"
+
+    assert set_video_favorite(db_path, "fav001", False) is True
+    snapshot_after_clear = fetch_catalog_snapshot(db_path)
+    assert snapshot_after_clear["favorites"] == []

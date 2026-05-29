@@ -81,7 +81,69 @@ def initialize_metadata_store(db_path: Path, migrations_dir: Path | None = None)
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS favorites (
+                video_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+            )
+            """
+        )
         connection.commit()
+
+
+def ensure_favorites_table(db_path: Path) -> None:
+    """Ensure the favorites table exists for legacy catalogs.
+
+    This keeps report queries compatible with catalogs created before
+    the favorites feature was introduced.
+    """
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS favorites (
+                video_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.commit()
+
+
+def set_video_favorite(db_path: Path, video_id: str, is_favorite: bool) -> bool:
+    """Set or clear favorite state for a known video.
+
+    Returns:
+        bool: True when the video exists and was updated; False otherwise.
+    """
+    now_utc = datetime.now(UTC).isoformat()
+    ensure_favorites_table(db_path)
+    with sqlite3.connect(db_path) as connection:
+        exists = connection.execute(
+            "SELECT 1 FROM videos WHERE video_id=? LIMIT 1",
+            (video_id,),
+        ).fetchone()
+        if exists is None:
+            return False
+        if is_favorite:
+            connection.execute(
+                """
+                INSERT INTO favorites (video_id, created_at)
+                VALUES (?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    created_at=excluded.created_at
+                """,
+                (video_id, now_utc),
+            )
+        else:
+            connection.execute(
+                "DELETE FROM favorites WHERE video_id=?",
+                (video_id,),
+            )
+        connection.commit()
+    return True
 
 
 def upsert_video_record(db_path: Path, record: VideoCatalogRecord) -> None:
@@ -391,12 +453,17 @@ def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
                 "SELECT * FROM species_classifications ORDER BY updated_at ASC"
             )
         ]
+        favorites = [
+            dict(row)
+            for row in connection.execute("SELECT * FROM favorites ORDER BY created_at ASC")
+        ]
 
     return {
         "videos": videos,
         "processing_state": processing_state,
         "artifacts": artifacts,
         "species_classifications": species_classifications,
+        "favorites": favorites,
     }
 
 
@@ -410,12 +477,14 @@ def list_catalog_videos(
     min_confidence: float | None = None,
     max_confidence: float | None = None,
     needs_reprocess: bool | None = None,
+    is_favorite: bool | None = None,
     sort_by: str = "capture_date",
     sort_dir: str = "desc",
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return paginated catalog rows for the reporting app list view."""
+    ensure_favorites_table(db_path)
     sort_columns = {
         "capture_date": "COALESCE(v.capture_date, '')",
         "processed_at": "COALESCE(ps.processed_at, '')",
@@ -452,6 +521,10 @@ def list_catalog_videos(
     elif needs_reprocess is False:
         filters.append("ps.pipeline_version = ?")
         params.append(current_pipeline_version)
+    if is_favorite is True:
+        filters.append("f.video_id IS NOT NULL")
+    elif is_favorite is False:
+        filters.append("f.video_id IS NULL")
 
     where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
     safe_page = max(1, int(page))
@@ -463,6 +536,7 @@ def list_catalog_videos(
         FROM videos v
         LEFT JOIN processing_state ps ON ps.video_id = v.video_id
         LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN favorites f ON f.video_id = v.video_id
         {where_clause}
     """
 
@@ -485,6 +559,7 @@ def list_catalog_videos(
             sc.top_score,
             sc.top_raw_class,
             sc.candidates_json,
+            CASE WHEN f.video_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
             MAX(CASE WHEN a.artifact_type = 'bucketed_video' THEN a.path END) AS bucketed_video_path,
             MAX(CASE WHEN a.artifact_type = 'report_video' THEN a.path END) AS report_video_path,
             MAX(CASE WHEN a.artifact_type = 'preview_image' THEN a.path END) AS preview_image_path,
@@ -492,6 +567,7 @@ def list_catalog_videos(
         FROM videos v
         LEFT JOIN processing_state ps ON ps.video_id = v.video_id
         LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN favorites f ON f.video_id = v.video_id
         LEFT JOIN artifacts a ON a.video_id = v.video_id
         {where_clause}
         GROUP BY
@@ -511,7 +587,8 @@ def list_catalog_videos(
             sc.top_label,
             sc.top_score,
             sc.top_raw_class,
-            sc.candidates_json
+            sc.candidates_json,
+            f.video_id
         ORDER BY {order_column} {order_direction}, v.video_id ASC
         LIMIT ? OFFSET ?
     """
@@ -533,6 +610,7 @@ def get_catalog_video_detail(
     current_pipeline_version: str,
 ) -> dict[str, Any] | None:
     """Return one video detail row for the reporting app."""
+    ensure_favorites_table(db_path)
     # Use a direct detail query so list ordering/filtering logic stays separate.
     detail_sql = """
         SELECT
@@ -553,6 +631,7 @@ def get_catalog_video_detail(
             sc.top_score,
             sc.top_raw_class,
             sc.candidates_json,
+            CASE WHEN f.video_id IS NULL THEN 0 ELSE 1 END AS is_favorite,
             MAX(CASE WHEN a.artifact_type = 'bucketed_video' THEN a.path END) AS bucketed_video_path,
             MAX(CASE WHEN a.artifact_type = 'report_video' THEN a.path END) AS report_video_path,
             MAX(CASE WHEN a.artifact_type = 'preview_image' THEN a.path END) AS preview_image_path,
@@ -560,6 +639,7 @@ def get_catalog_video_detail(
         FROM videos v
         LEFT JOIN processing_state ps ON ps.video_id = v.video_id
         LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
+        LEFT JOIN favorites f ON f.video_id = v.video_id
         LEFT JOIN artifacts a ON a.video_id = v.video_id
         WHERE v.video_id = ?
         GROUP BY
@@ -579,7 +659,8 @@ def get_catalog_video_detail(
             sc.top_label,
             sc.top_score,
             sc.top_raw_class,
-            sc.candidates_json
+                sc.candidates_json,
+                f.video_id
     """
 
     with sqlite3.connect(db_path) as connection:
@@ -590,4 +671,5 @@ def get_catalog_video_detail(
 
     payload = dict(row)
     payload["needs_reprocess"] = payload.get("pipeline_version") != current_pipeline_version
+    payload["is_favorite"] = bool(payload.get("is_favorite"))
     return payload

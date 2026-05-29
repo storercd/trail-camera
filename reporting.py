@@ -47,6 +47,7 @@ def write_sqlite_snapshot_export(
             "processing_state": len(snapshot["processing_state"]),
             "artifacts": len(snapshot["artifacts"]),
             "species_classifications": len(snapshot["species_classifications"]),
+            "favorites": len(snapshot["favorites"]),
         },
     }
     with summary_path.open("w", encoding="utf-8") as handle:

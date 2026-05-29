@@ -68,4 +68,5 @@ def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Pat
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert payload["pipeline_version"] == "0.3.0"
     assert payload["counts"]["videos"] == 1
+    assert payload["counts"]["favorites"] == 0
     assert payload["snapshot"]["videos"][0]["video_id"] == "export001"

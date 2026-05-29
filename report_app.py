@@ -9,9 +9,9 @@ from math import ceil
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, render_template, request, send_file, url_for
+from flask import Flask, abort, redirect, render_template, request, send_file, url_for
 
-from metadata_store import get_catalog_video_detail, list_catalog_videos
+from metadata_store import get_catalog_video_detail, list_catalog_videos, set_video_favorite
 from pipeline_config import DEFAULT_CONFIG_PATH, build_run_paths, load_config
 
 
@@ -39,6 +39,14 @@ def _parse_optional_float(value: str | None) -> float | None:
 
 
 def _parse_needs_reprocess(value: str | None) -> bool | None:
+    if value == "yes":
+        return True
+    if value == "no":
+        return False
+    return None
+
+
+def _parse_is_favorite(value: str | None) -> bool | None:
     if value == "yes":
         return True
     if value == "no":
@@ -98,6 +106,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             "date_from": request.args.get("date_from", ""),
             "date_to": request.args.get("date_to", ""),
             "bucket": request.args.get("bucket", "interesting"),
+            "is_favorite": request.args.get("is_favorite", ""),
             "species": request.args.get("species", ""),
             "min_confidence": request.args.get("min_confidence", ""),
             "max_confidence": request.args.get("max_confidence", ""),
@@ -119,6 +128,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             min_confidence=_parse_optional_float(filters["min_confidence"]),
             max_confidence=_parse_optional_float(filters["max_confidence"]),
             needs_reprocess=_parse_needs_reprocess(filters["needs_reprocess"]),
+            is_favorite=_parse_is_favorite(filters["is_favorite"]),
             sort_by=filters["sort_by"],
             sort_dir=filters["sort_dir"],
             page=page,
@@ -126,6 +136,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
         )
         for row in rows:
             row["needs_reprocess"] = row.get("pipeline_version") != app.config["CURRENT_PIPELINE_VERSION"]
+            row["is_favorite"] = bool(row.get("is_favorite"))
         _build_display_names(rows)
 
         total_pages = max(1, ceil(total_count / page_size)) if total_count else 1
@@ -154,6 +165,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             ],
             page_sizes=[12, 24, 48, 96],
             pagination_url=pagination_url,
+            current_url=request.full_path,
         )
 
     @app.get("/video/<video_id>")
@@ -167,7 +179,27 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             abort(404)
         _build_display_names([video])
         candidates = _load_candidates(video.get("candidates_json"))
+        video["is_favorite"] = bool(video.get("is_favorite"))
         return render_template("detail.html", video=video, candidates=candidates)
+
+    @app.post("/video/<video_id>/favorite")
+    def favorite_video(video_id: str):
+        action = request.form.get("action", "toggle")
+        current_value = request.form.get("current", "0")
+        if action == "set":
+            is_favorite = request.form.get("favorite") == "1"
+        elif action == "clear":
+            is_favorite = False
+        else:
+            is_favorite = current_value != "1"
+
+        if not set_video_favorite(app.config["METADATA_DB_PATH"], video_id=video_id, is_favorite=is_favorite):
+            abort(404)
+
+        next_path = request.form.get("next") or url_for("list_videos")
+        if not next_path.startswith("/"):
+            next_path = url_for("list_videos")
+        return redirect(next_path)
 
     @app.get("/artifact/<video_id>/<artifact_type>")
     def artifact_file(video_id: str, artifact_type: str):

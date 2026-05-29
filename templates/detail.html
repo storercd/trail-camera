@@ -54,6 +54,29 @@
             font-size: 0.95rem;
         }
         .warning { background: var(--warning-soft); color: var(--warning); }
+        .favorite-pill { background: #fff1bf; color: #805600; }
+        .favorite-form {
+            margin: 0;
+            display: inline-flex;
+        }
+        .favorite-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid #b98900;
+            color: #805600;
+            background: #fff7d4;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .favorite-button.active {
+            background: #ffe48a;
+            border-color: #8f6400;
+            color: #6f4d00;
+        }
         .panel {
             margin-top: 18px;
             background: color-mix(in srgb, var(--panel) 95%, white);
@@ -102,7 +125,16 @@
             <span class="pill">Bucket: {{ video.bucket or 'n/a' }}</span>
             <span class="pill">Species: {{ video.top_label or 'unknown' }}</span>
             <span class="pill">Confidence: {{ '%.3f'|format(video.top_score if video.top_score is not none else (video.top_confidence or 0.0)) }}</span>
+            {% if video.is_favorite %}<span class="pill favorite-pill">★ Favorite</span>{% endif %}
             {% if video.needs_reprocess %}<span class="pill warning">Needs Reprocess</span>{% endif %}
+            <form class="favorite-form" method="post" action="{{ url_for('favorite_video', video_id=video.video_id) }}">
+                <input type="hidden" name="action" value="toggle">
+                <input type="hidden" name="current" value="{{ '1' if video.is_favorite else '0' }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="favorite-button {% if video.is_favorite %}active{% endif %}" type="submit">
+                    {% if video.is_favorite %}★ Favorited{% else %}☆ Favorite{% endif %}
+                </button>
+            </form>
         </div>
 
         <section class="panel">

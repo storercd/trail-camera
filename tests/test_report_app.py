@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from metadata_store import (
@@ -174,3 +175,60 @@ def test_report_app_should_default_to_interesting_bucket(tmp_path: Path) -> None
     all_body = all_response.get_data(as_text=True)
     assert "ccc33333" in all_body
     assert "ddd44444" in all_body
+
+
+def test_report_app_should_toggle_favorite_and_filter_results(tmp_path: Path) -> None:
+    """Toggle favorites from routes and filter list view to favorite videos only."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    _seed_video(db_path, tmp_path, "eee55555", "2026-05-05", "interesting", "0.2.0", "deer", 0.84)
+    _seed_video(db_path, tmp_path, "fff66666", "2026-05-06", "interesting", "0.2.0", "raccoon", 0.78)
+
+    app = create_app(_write_config(tmp_path, db_path))
+    client = app.test_client()
+
+    favorite_response = client.post(
+        "/video/eee55555/favorite",
+        data={"action": "set", "favorite": "1", "next": "/?is_favorite=yes"},
+    )
+    assert favorite_response.status_code == 302
+
+    favorites_only_response = client.get("/?is_favorite=yes")
+    assert favorites_only_response.status_code == 200
+    favorites_only_body = favorites_only_response.get_data(as_text=True)
+    assert "eee55555" in favorites_only_body
+    assert "fff66666" not in favorites_only_body
+    assert "★ Favorite" in favorites_only_body
+
+    detail_response = client.get("/video/eee55555")
+    assert detail_response.status_code == 200
+    detail_body = detail_response.get_data(as_text=True)
+    assert "★ Favorited" in detail_body
+
+    unfavorite_response = client.post(
+        "/video/eee55555/favorite",
+        data={"action": "clear", "next": "/?is_favorite=yes"},
+    )
+    assert unfavorite_response.status_code == 302
+
+    favorites_after_clear_response = client.get("/?is_favorite=yes")
+    assert favorites_after_clear_response.status_code == 200
+    assert "eee55555" not in favorites_after_clear_response.get_data(as_text=True)
+
+
+def test_report_app_should_support_legacy_catalog_without_favorites_table(tmp_path: Path) -> None:
+    """List view should auto-create favorites table for pre-feature catalogs."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    _seed_video(db_path, tmp_path, "ggg77777", "2026-05-07", "interesting", "0.2.0", "bobcat", 0.93)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE favorites")
+        connection.commit()
+
+    app = create_app(_write_config(tmp_path, db_path))
+    client = app.test_client()
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "ggg77777" in response.get_data(as_text=True)
