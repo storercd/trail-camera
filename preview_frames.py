@@ -5,13 +5,32 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextlib import redirect_stderr
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import cv2
 
 logger = logging.getLogger(__name__)
+
+_opencv_noise_suppressed = False
+
+
+def _suppress_opencv_noise_once() -> None:
+    """Best-effort suppression of OpenCV log noise for decoder warnings."""
+    global _opencv_noise_suppressed
+    if _opencv_noise_suppressed:
+        return
+
+    try:
+        if hasattr(cv2, "setLogLevel") and hasattr(cv2, "LOG_LEVEL_ERROR"):
+            cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
+    except Exception:
+        # Keep processing resilient across OpenCV versions/platform builds.
+        pass
+    _opencv_noise_suppressed = True
 
 
 @dataclass
@@ -271,13 +290,16 @@ def extract_frame(video_path: Path, frame_number: int, output_image: Path) -> bo
     Returns:
         bool: True when frame extraction and write succeed.
     """
-    capture = cv2.VideoCapture(str(video_path))
-    if not capture.isOpened():
-        return False
+    _suppress_opencv_noise_once()
 
-    capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame_number))
-    ok, frame = capture.read()
-    capture.release()
+    with redirect_stderr(StringIO()):
+        capture = cv2.VideoCapture(str(video_path))
+        if not capture.isOpened():
+            return False
+
+        capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame_number))
+        ok, frame = capture.read()
+        capture.release()
     if not ok:
         return False
 

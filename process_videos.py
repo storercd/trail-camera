@@ -118,6 +118,16 @@ def configure_logging(level_name: str) -> None:
     """
     level = getattr(logging, level_name.upper(), logging.INFO)
     logging.basicConfig(level=level, format="%(levelname)s %(message)s", force=True)
+    for noisy_logger_name in (
+        "megadetector",
+        "speciesnet",
+        "yolov5",
+        "ultralytics",
+        "torch",
+        "PIL",
+        "matplotlib",
+    ):
+        logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
 
 
 def _load_species_entries_by_video_id(
