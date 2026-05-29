@@ -40,34 +40,55 @@ These descriptions are preserved from the original command-line parameter help t
 
 ## Usage
 
+Install the project using your local machine Python environment
+(without re-resolving heavy ML dependencies):
+
+```bash
+python3 -m pip install --user -e . --no-deps
+```
+
+Ensure your user scripts directory is on PATH:
+
+```bash
+export PATH="$HOME/Library/Python/3.12/bin:$PATH"
+```
+
+To persist this for future terminals, add the same line to `~/.zshrc`.
+
 Run with the default config file:
 
 ```bash
-/usr/local/bin/python3 process_videos.py
+trail-camera-process
 ```
 
 Run with a custom config file:
 
 ```bash
-/usr/local/bin/python3 process_videos.py --config my_config.yaml
+trail-camera-process --config my_config.yaml
 ```
 
 Run only newly discovered videos (default mode):
 
 ```bash
-/usr/local/bin/python3 process_videos.py --mode new-only
+trail-camera-process --mode new-only
+```
+
+Reset matching catalog rows for videos currently in input and re-ingest as new:
+
+```bash
+trail-camera-process --mode reprocess-input
 ```
 
 Reprocess already cataloged videos from canonical stored originals:
 
 ```bash
-/usr/local/bin/python3 process_videos.py --mode reprocess-existing
+trail-camera-process --mode reprocess-existing
 ```
 
 Generate reports only from SQLite + artifact files, without reprocessing videos:
 
 ```bash
-/usr/local/bin/python3 process_videos.py --mode report-only
+trail-camera-process --mode report-only
 ```
 
 Top-frame preview extraction, SpeciesNet classification, and species-crop
@@ -106,7 +127,7 @@ when their top species label matches `uninteresting_species_labels`.
 Run the local SQLite-backed reporting app:
 
 ```bash
-/usr/local/bin/python3 report_app.py --config process_videos.config.yaml
+trail-camera-report --config process_videos.config.yaml
 ```
 
 The app starts a local HTTP server, defaulting to `http://127.0.0.1:8000`.
@@ -174,10 +195,21 @@ boxes, and the crop images are saved for review.
 
 ## Dependencies
 
-Install project dependencies with:
+This repository is typically run against a pre-existing local Python
+environment that already has `megadetector`/`speciesnet` and their
+transitive dependencies installed.
+
+Install only the project code (recommended path):
 
 ```bash
-/usr/local/bin/python3 -m pip install -r requirements.txt
+python3 -m pip install --user -e . --no-deps
+```
+
+If you need a full local dependency install into an isolated environment,
+use:
+
+```bash
+python3 -m pip install -r requirements.txt
 ```
 
 Or use the bootstrap script to create/recreate a clean virtual environment and

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trail-camera"
+version = "0.1.0"
+description = "Trail camera processing pipeline with MegaDetector and SpeciesNet."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "Flask==3.1.1",
+    "PyYAML==6.0.2",
+    "kagglehub==1.0.1",
+    "megadetector==10.0.20",
+    "numpy<2.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "numpy==2.2.3; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "opencv-python==4.11.0.86",
+    "Pillow==11.2.1",
+    "pytesseract==0.3.13",
+    "speciesnet==5.0.3",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-cov==7.0.0",
+    "ruff>=0.11",
+]
+
+[project.scripts]
+trail-camera-process = "process_videos:main"
+trail-camera-report = "report_app:main"
+
+[tool.setuptools]
+py-modules = [
+    "classification",
+    "detector_runner",
+    "file_ops",
+    "metadata_store",
+    "pipeline_config",
+    "pipeline_models",
+    "preview_frames",
+    "process_videos",
+    "processing_modes",
+    "report_app",
+    "reporting",
+    "video_clipping",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
+[tool.uv.extra-build-dependencies]
+onnx = ["cmake>=3.26,<4"]
