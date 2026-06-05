@@ -10,10 +10,12 @@ from metadata_store import (
     SpeciesClassificationRecord,
     VideoCatalogRecord,
     delete_species_classification_record,
+    demote_videos_to_uninteresting,
     fetch_catalog_snapshot,
     get_stored_original_paths,
     get_stored_original_records,
     initialize_metadata_store,
+    purge_species_classification_labels,
     set_video_favorite,
     sync_artifact_path,
     upsert_processing_state_record,
@@ -295,3 +297,91 @@ def test_set_video_favorite_should_toggle_and_validate_video_id(tmp_path: Path) 
     assert set_video_favorite(db_path, "fav001", False) is True
     snapshot_after_clear = fetch_catalog_snapshot(db_path)
     assert snapshot_after_clear["favorites"] == []
+
+
+def test_purge_species_classification_labels_should_preserve_favorites(tmp_path: Path) -> None:
+    """Delete matching species rows except for favorited videos."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    for video_id in ("fav001", "drop001"):
+        upsert_video_record(
+            db_path,
+            VideoCatalogRecord(
+                video_id=video_id,
+                original_filename=f"{video_id}.avi",
+                capture_date="2026-05-05",
+                filesize_bytes=100,
+                source_ext=".avi",
+                stored_original_path=f"/tmp/videos/{video_id}/source.avi",
+            ),
+        )
+        upsert_species_classification_record(
+            db_path=db_path,
+            record=SpeciesClassificationRecord(
+                video_id=video_id,
+                top_label="blank",
+                top_score=0.95,
+                top_raw_class="animal;blank",
+                candidates_json='[{"label":"blank","score":0.95}]',
+            ),
+        )
+
+    assert set_video_favorite(db_path, "fav001", True) is True
+
+    deleted_rows = purge_species_classification_labels(db_path, ["blank"], preserve_favorites=True)
+
+    assert deleted_rows == 1
+    snapshot = fetch_catalog_snapshot(db_path)
+    remaining_video_ids = {row["video_id"] for row in snapshot["species_classifications"]}
+    assert remaining_video_ids == {"fav001"}
+
+
+def test_demote_videos_to_uninteresting_should_clear_report_artifacts(tmp_path: Path) -> None:
+    """Demote videos and remove report-visible artifacts from the catalog."""
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    for video_id in ("drop001", "keep001"):
+        upsert_video_record(
+            db_path,
+            VideoCatalogRecord(
+                video_id=video_id,
+                original_filename=f"{video_id}.avi",
+                capture_date="2026-05-05",
+                filesize_bytes=100,
+                source_ext=".avi",
+                stored_original_path=f"/tmp/videos/{video_id}/source.avi",
+            ),
+        )
+
+        upsert_processing_state_record(
+            db_path,
+            ProcessingStateRecord(
+                video_id=video_id,
+                pipeline_version="0.1.0",
+                mode="new-only",
+                bucket="interesting",
+                top_confidence=0.9,
+                top_category="1",
+                top_frame=12,
+                status="processed",
+            ),
+        )
+
+    for artifact_type in ("bucketed_video", "report_video", "preview_image", "species_crop"):
+        artifact_path = tmp_path / f"drop001-{artifact_type}.bin"
+        artifact_path.write_bytes(b"x")
+        sync_artifact_path(db_path, "drop001", artifact_type, artifact_path)
+
+    updated_rows, deleted_artifacts = demote_videos_to_uninteresting(db_path, ["drop001"])
+
+    assert updated_rows == 1
+    assert deleted_artifacts == 4
+    snapshot = fetch_catalog_snapshot(db_path)
+    processing_by_video = {row["video_id"]: row for row in snapshot["processing_state"]}
+
+    assert processing_by_video["drop001"]["bucket"] == "uninteresting"
+    assert processing_by_video["keep001"]["bucket"] == "interesting"
+    assert snapshot["artifacts"] == []
+    assert list(tmp_path.glob("drop001-*.bin")) == []

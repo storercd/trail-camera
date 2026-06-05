@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from metadata_store import purge_species_classification_labels
 from pipeline_config import DEFAULT_CONFIG_PATH, build_run_paths, load_config
 
 
@@ -79,7 +80,7 @@ def _build_where_clause(categories: set[str], labels: set[str]) -> tuple[str, li
         params.extend(sorted(labels))
     if not clauses:
         return "", []
-    return "WHERE " + " OR ".join(clauses), params
+    return "WHERE (" + " OR ".join(clauses) + ") AND f.video_id IS NULL", params
 
 
 def load_cleanup_targets(
@@ -111,6 +112,7 @@ def load_cleanup_targets(
         LEFT JOIN processing_state ps ON ps.video_id = v.video_id
         LEFT JOIN species_classifications sc ON sc.video_id = v.video_id
         LEFT JOIN artifacts a ON a.video_id = v.video_id
+        LEFT JOIN favorites f ON f.video_id = v.video_id
         {where_clause}
         GROUP BY v.video_id, v.stored_original_path, ps.top_category, sc.top_label, ps.bucket
         ORDER BY v.video_id ASC
@@ -288,9 +290,15 @@ def main() -> int:
         targets=targets,
         save_uninteresting_files=config.save_uninteresting_files,
     )
+    deleted_species_rows = purge_species_classification_labels(
+        db_path=paths.metadata_db_path,
+        labels=config.uninteresting_species_labels,
+        preserve_favorites=True,
+    )
     print(
         "Cleanup complete. "
-        f"deleted_artifact_files={deleted_artifact_files}, deleted_source_files={deleted_source_files}"
+        f"deleted_artifact_files={deleted_artifact_files}, deleted_source_files={deleted_source_files}, "
+        f"deleted_species_rows={deleted_species_rows}"
     )
     return 0
 

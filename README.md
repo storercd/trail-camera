@@ -121,6 +121,7 @@ If `preview_include_uninteresting` is enabled, uninteresting videos are consider
 
 After SpeciesNet classification, the pipeline can also demote videos to `uninteresting`
 when their top species label matches `uninteresting_species_labels`.
+Matching species rows are then purged from SQLite after sync, except for videos marked as favorites.
 
 ## Local Reporting App
 

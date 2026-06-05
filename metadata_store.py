@@ -429,6 +429,131 @@ def delete_species_classification_record(db_path: Path, video_id: str) -> None:
         connection.commit()
 
 
+def list_favorite_video_ids(db_path: Path) -> set[str]:
+    """Return canonical video IDs currently marked as favorites."""
+    ensure_favorites_table(db_path)
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute("SELECT video_id FROM favorites").fetchall()
+    return {str(row[0]) for row in rows if row and row[0] is not None}
+
+
+def list_species_classification_video_ids(
+    db_path: Path,
+    labels: list[str],
+    preserve_favorites: bool = True,
+) -> list[str]:
+    """Return video IDs whose stored species label matches configured labels."""
+    normalized_labels = sorted({label.strip().lower() for label in labels if label.strip()})
+    if not normalized_labels:
+        return []
+
+    ensure_favorites_table(db_path)
+    placeholders = ",".join("?" for _ in normalized_labels)
+    favorite_clause = "AND sc.video_id NOT IN (SELECT video_id FROM favorites)" if preserve_favorites else ""
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT sc.video_id
+            FROM species_classifications AS sc
+            WHERE LOWER(COALESCE(sc.top_label, '')) IN ({placeholders})
+            {favorite_clause}
+            ORDER BY sc.video_id ASC
+            """,
+            normalized_labels,
+        ).fetchall()
+    return [str(row[0]) for row in rows if row and row[0] is not None]
+
+
+def demote_videos_to_uninteresting(db_path: Path, video_ids: list[str]) -> tuple[int, int]:
+    """Mark videos uninteresting and remove their report-visible artifacts.
+
+    Returns:
+        tuple[int, int]: Number of processing_state rows updated and artifact rows deleted.
+    """
+    if not video_ids:
+        return 0, 0
+
+    artifact_types = ("bucketed_video", "report_video", "preview_image", "species_crop")
+    placeholders = ",".join("?" for _ in video_ids)
+    artifact_placeholders = ",".join("?" for _ in artifact_types)
+    now_utc = datetime.now(UTC).isoformat()
+
+    with sqlite3.connect(db_path) as connection:
+        artifact_rows = connection.execute(
+            f"""
+            SELECT path
+            FROM artifacts
+            WHERE video_id IN ({placeholders})
+              AND artifact_type IN ({artifact_placeholders})
+            """,
+            [*video_ids, *artifact_types],
+        ).fetchall()
+        for artifact_row in artifact_rows:
+            artifact_path = Path(str(artifact_row[0]))
+            if artifact_path.exists() and artifact_path.is_file():
+                artifact_path.unlink()
+
+        artifact_cursor = connection.execute(
+            f"""
+            DELETE FROM artifacts
+            WHERE video_id IN ({placeholders})
+              AND artifact_type IN ({artifact_placeholders})
+            """,
+            [*video_ids, *artifact_types],
+        )
+        state_cursor = connection.execute(
+            f"""
+            UPDATE processing_state
+            SET bucket = 'uninteresting', processed_at = ?
+            WHERE video_id IN ({placeholders})
+            """,
+            [now_utc, *video_ids],
+        )
+        connection.commit()
+
+    updated_rows = int(state_cursor.rowcount if state_cursor.rowcount is not None else 0)
+    deleted_artifacts = int(artifact_cursor.rowcount if artifact_cursor.rowcount is not None else 0)
+    return updated_rows, deleted_artifacts
+
+
+def purge_species_classification_labels(
+    db_path: Path,
+    labels: list[str],
+    preserve_favorites: bool = True,
+) -> int:
+    """Delete species rows whose top label matches configured labels.
+
+    Args:
+        db_path: Metadata sqlite database path.
+        labels: Top-label values to remove, matched case-insensitively.
+        preserve_favorites: Keep rows for videos marked as favorites when true.
+
+    Returns:
+        int: Number of species-classification rows deleted.
+    """
+    video_ids = list_species_classification_video_ids(
+        db_path=db_path,
+        labels=labels,
+        preserve_favorites=preserve_favorites,
+    )
+    if not video_ids:
+        return 0
+
+    placeholders = ",".join("?" for _ in video_ids)
+
+    with sqlite3.connect(db_path) as connection:
+        cursor = connection.execute(
+            f"""
+            DELETE FROM species_classifications AS sc
+            WHERE sc.video_id IN ({placeholders})
+            """,
+            video_ids,
+        )
+        connection.commit()
+    return int(cursor.rowcount if cursor.rowcount is not None else 0)
+
+
 def fetch_catalog_snapshot(db_path: Path) -> dict[str, list[dict[str, Any]]]:
     """Fetch full catalog tables as JSON-serializable dictionaries.
 

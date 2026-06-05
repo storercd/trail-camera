@@ -12,11 +12,15 @@ from typing import Any
 
 from classification import classify_and_sort_videos, compute_bucket_counts
 from detector_runner import load_results, run_detector
-from file_ops import compute_sha256, find_videos, overwrite_canonical_original, validate_and_find_videos
+from file_ops import compute_sha256, find_videos, overwrite_canonical_original
 from metadata_store import (
     SpeciesClassificationRecord,
     delete_species_classification_record,
+    demote_videos_to_uninteresting,
     initialize_metadata_store,
+    list_favorite_video_ids,
+    list_species_classification_video_ids,
+    purge_species_classification_labels,
     upsert_species_classification_record,
 )
 from pipeline_config import (
@@ -227,6 +231,7 @@ def apply_uninteresting_species_filters(
     decisions: list[VideoDecision],
     species_classification_report_path: Path,
     uninteresting_species_labels: list[str],
+    protected_output_paths: set[str] | None = None,
 ) -> set[str]:
     """Demote interesting decisions when top species label is configured as uninteresting.
 
@@ -237,6 +242,7 @@ def apply_uninteresting_species_filters(
     if not normalized_labels:
         return set()
 
+    protected_paths = protected_output_paths or set()
     labels_by_path = _load_species_top_label_by_output_path(species_classification_report_path)
     if not labels_by_path:
         return set()
@@ -244,6 +250,8 @@ def apply_uninteresting_species_filters(
     demoted_paths: set[str] = set()
     for decision in decisions:
         if decision.bucket != "interesting":
+            continue
+        if decision.output_relative_path in protected_paths:
             continue
         top_label = labels_by_path.get(decision.output_relative_path, "").strip().lower()
         if top_label in normalized_labels:
@@ -345,6 +353,49 @@ def sync_species_classifications_to_catalog(
                 candidates_json=json.dumps(candidates),
             ),
         )
+
+
+def purge_uninteresting_species_records(
+    metadata_db_path: Path,
+    uninteresting_species_labels: list[str],
+) -> int:
+    """Delete matching species rows while preserving favorites.
+
+    Returns:
+        int: Number of matching species-classification rows deleted.
+    """
+    matching_video_ids = list_species_classification_video_ids(
+        db_path=metadata_db_path,
+        labels=uninteresting_species_labels,
+        preserve_favorites=True,
+    )
+    if not matching_video_ids:
+        return 0
+
+    demote_videos_to_uninteresting(
+        db_path=metadata_db_path,
+        video_ids=matching_video_ids,
+    )
+    return purge_species_classification_labels(
+        db_path=metadata_db_path,
+        labels=uninteresting_species_labels,
+        preserve_favorites=True,
+    )
+
+
+def run_catalog_species_maintenance(
+    metadata_db_path: Path,
+    uninteresting_species_labels: list[str],
+) -> int:
+    """Apply catalog-only species cleanup that should run without video processing.
+
+    Returns:
+        int: Number of matching species-classification rows deleted.
+    """
+    return purge_uninteresting_species_records(
+        metadata_db_path=metadata_db_path,
+        uninteresting_species_labels=uninteresting_species_labels,
+    )
 
 
 def extract_preview_frames_for_decisions(
@@ -760,6 +811,23 @@ def _write_optional_reports(paths: Any, config: Any) -> None:
             logger.warning("Failed to open HTML summary automatically: %s", paths.html_summary_path)
 
 
+def _find_input_videos_for_processing(input_dir: Path, recursive: bool) -> list[Path]:
+    """Load input videos for modes that should tolerate an empty directory.
+
+    Returns:
+        list[Path]: Discovered input videos, possibly empty.
+
+    Raises:
+        SystemExit: If the configured input directory is missing or invalid.
+    """
+    if not input_dir.exists() or not input_dir.is_dir():
+        raise SystemExit(f"Input directory does not exist: {input_dir}")
+
+    discovered_videos = find_videos(input_dir, recursive)
+    logger.info("Found %s video(s) to process", len(discovered_videos))
+    return discovered_videos
+
+
 def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> list[ProcessingSource]:
     """Resolve source list based on processing mode.
 
@@ -767,7 +835,7 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
         list[ProcessingSource]: Sources selected for this processing mode.
     """
     if mode == "new-only":
-        discovered_videos = validate_and_find_videos(paths.input_dir, config.recursive)
+        discovered_videos = _find_input_videos_for_processing(paths.input_dir, config.recursive)
         ingested_count, newly_persisted_count, newly_discovered_sources = ingest_videos_into_catalog(
             videos=discovered_videos,
             canonical_videos_dir=paths.canonical_videos_dir,
@@ -786,7 +854,7 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
         )
         return newly_discovered_sources
     if mode == "reprocess-input":
-        discovered_videos = validate_and_find_videos(paths.input_dir, config.recursive)
+        discovered_videos = _find_input_videos_for_processing(paths.input_dir, config.recursive)
         deleted_records, deleted_files = reset_input_videos_for_reingest(
             metadata_db_path=paths.metadata_db_path,
             input_videos=discovered_videos,
@@ -1192,12 +1260,25 @@ def main() -> int:
     initialize_metadata_store(paths.metadata_db_path)
 
     if args.mode == "report-only":
+        purged_species_rows = run_catalog_species_maintenance(
+            metadata_db_path=paths.metadata_db_path,
+            uninteresting_species_labels=config.uninteresting_species_labels,
+        )
+        if purged_species_rows:
+            logger.info("Purged uninteresting species rows: %s", purged_species_rows)
         _write_optional_reports(paths, config)
         logger.info("Report generation complete from sqlite catalog and artifact files")
         return 0
 
     processing_sources = _load_processing_sources_for_mode(args.mode, paths, config)
     if not processing_sources:
+        purged_species_rows = run_catalog_species_maintenance(
+            metadata_db_path=paths.metadata_db_path,
+            uninteresting_species_labels=config.uninteresting_species_labels,
+        )
+        if purged_species_rows:
+            logger.info("Purged uninteresting species rows: %s", purged_species_rows)
+            _write_optional_reports(paths, config)
         logger.info("No videos selected for processing in mode '%s'. Exiting.", args.mode)
         return 0
 
@@ -1248,10 +1329,18 @@ def main() -> int:
         final_report_path=species_classification_report_path,
     )
 
+    favorite_video_ids = list_favorite_video_ids(paths.metadata_db_path)
+    protected_output_paths = {
+        decision.output_relative_path
+        for decision in accumulator.all_decisions
+        if accumulator.all_staged_video_ids.get(decision.relative_path) in favorite_video_ids
+    }
+
     demoted_output_paths = apply_uninteresting_species_filters(
         decisions=accumulator.all_decisions,
         species_classification_report_path=species_classification_report_path,
         uninteresting_species_labels=config.uninteresting_species_labels,
+        protected_output_paths=protected_output_paths,
     )
     if demoted_output_paths:
         deleted_files = cleanup_demoted_output_artifacts(
@@ -1292,6 +1381,12 @@ def main() -> int:
         metadata_db_path=paths.metadata_db_path,
         video_ids_by_output_path=video_ids_by_output_path,
     )
+    purged_species_rows = run_catalog_species_maintenance(
+        metadata_db_path=paths.metadata_db_path,
+        uninteresting_species_labels=config.uninteresting_species_labels,
+    )
+    if purged_species_rows:
+        logger.info("Purged uninteresting species rows: %s", purged_species_rows)
 
     logger.info(
         "Preview extraction complete: candidates=%s extracted=%s skipped=%s failed=%s "

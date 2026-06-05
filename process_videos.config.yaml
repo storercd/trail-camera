@@ -32,6 +32,7 @@ excluded_megadetector_categories:
 
 # Species labels to force as uninteresting when SpeciesNet top label matches.
 uninteresting_species_labels:
+  - blank
   - domestic dog
   - canis species
 
