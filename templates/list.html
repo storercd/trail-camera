@@ -327,7 +327,7 @@
             {% endif %}
             <div class="card-grid">
                 {% for video in videos %}
-                <article class="video-card">
+                <article id="video-{{ video.video_id }}" class="video-card">
                     {% if video.species_crop_path %}
                     <a href="{{ url_for('video_detail', video_id=video.video_id) }}"><img class="thumb" src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='species_crop') }}" alt="Preview for {{ video.display_name }}"></a>
                     {% elif video.preview_image_path %}
@@ -363,7 +363,7 @@
                             <form class="favorite-form" method="post" action="{{ url_for('favorite_video', video_id=video.video_id) }}">
                                 <input type="hidden" name="action" value="toggle">
                                 <input type="hidden" name="current" value="{{ '1' if video.is_favorite else '0' }}">
-                                <input type="hidden" name="next" value="{{ current_url }}">
+                                <input type="hidden" name="next" value="{{ current_url }}#video-{{ video.video_id }}">
                                 <button class="favorite-button {% if video.is_favorite %}active{% endif %}" type="submit">
                                     {% if video.is_favorite %}★ Favorited{% else %}☆ Favorite{% endif %}
                                 </button>

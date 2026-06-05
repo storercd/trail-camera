@@ -33,6 +33,8 @@ excluded_megadetector_categories:
 # Species labels to force as uninteresting when SpeciesNet top label matches.
 uninteresting_species_labels:
   - blank
+  - eastern gray squirrel
+  - western gray squirrel
   - domestic dog
   - canis species
 
