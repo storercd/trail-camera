@@ -95,6 +95,12 @@ def _build_app_config(raw_config: dict[str, object], config_path: Path) -> AppCo
                 default=["domestic dog"],
                 error_message="uninteresting_species_labels must be a YAML list",
             ),
+            generic_species_labels_to_skip=_parse_string_list(
+                raw_config,
+                key="generic_species_labels_to_skip",
+                default=[],
+                error_message="generic_species_labels_to_skip must be a YAML list",
+            ),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"Invalid config file {config_path}: {exc}") from exc

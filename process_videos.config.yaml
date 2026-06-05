@@ -39,6 +39,10 @@ uninteresting_species_labels:
   - canis species
 
 # Move files instead of copying them into output buckets
+
+# Generic SpeciesNet labels to skip when choosing the displayed/stored primary species.
+generic_species_labels_to_skip:
+  - bird
 move_files: false
 
 # Save uninteresting videos in output/uninteresting; set false to keep only interesting videos

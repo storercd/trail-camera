@@ -20,6 +20,7 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - interesting_categories: Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
 - excluded_megadetector_categories: Category IDs to force as uninteresting even if included in interesting_categories
 - uninteresting_species_labels: SpeciesNet top labels to force as uninteresting (case-insensitive)
+- generic_species_labels_to_skip: Generic SpeciesNet labels to ignore so the next most likely specific candidate becomes the primary species
 - move_files: Move source files to canonical storage instead of copying (only effective in new-only mode)
 - save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
 - clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
@@ -122,6 +123,7 @@ If `preview_include_uninteresting` is enabled, uninteresting videos are consider
 After SpeciesNet classification, the pipeline can also demote videos to `uninteresting`
 when their top species label matches `uninteresting_species_labels`.
 Matching species rows are then purged from SQLite after sync, except for videos marked as favorites.
+When a SpeciesNet result is too generic (for example `bird`), the pipeline can skip that label and promote the next most likely specific candidate using `generic_species_labels_to_skip`.
 
 ## Local Reporting App
 

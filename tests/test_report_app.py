@@ -110,6 +110,7 @@ def _write_config(tmp_path: Path, db_path: Path) -> Path:
                 "speciesnet_label_in_filename: true",
                 "species_crop_output_dir: preview_species_crops",
                 "species_crop_padding: 0.15",
+                   "generic_species_labels_to_skip: ['bird']",
             ]
         ),
         encoding="utf-8",
@@ -296,3 +297,47 @@ def test_report_app_should_render_all_candidate_counts_without_top_limit(tmp_pat
     body = response.get_data(as_text=True)
     assert "antelope <strong>1</strong>" in body
     assert "raccoon <strong>1</strong>" in body
+
+    def test_report_app_should_display_primary_species_candidate_before_generic_labels(tmp_path: Path) -> None:
+        """Detail candidates should show the stored primary species before generic labels."""
+        db_path = tmp_path / "catalog.sqlite3"
+        initialize_metadata_store(db_path)
+        _seed_video(
+            db_path,
+            tmp_path,
+            "kkk11111",
+            "2026-06-02",
+            "interesting",
+            "0.2.0",
+            "steller's jay",
+            0.326,
+        )
+
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                """
+                UPDATE species_classifications
+                SET candidates_json=?
+                WHERE video_id=?
+                """,
+                (
+                    json.dumps(
+                        [
+                            {"label": "bird", "score": 0.38},
+                            {"label": "steller's jay", "score": 0.326},
+                            {"label": "green jay", "score": 0.013},
+                        ]
+                    ),
+                    "kkk11111",
+                ),
+            )
+            connection.commit()
+
+        app = create_app(_write_config(tmp_path, db_path))
+        client = app.test_client()
+
+        response = client.get("/video/kkk11111")
+
+        assert response.status_code == 200
+        body = response.get_data(as_text=True)
+        assert body.index("steller&#39;s jay (0.326)") < body.index("bird (0.380)")

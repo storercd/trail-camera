@@ -56,6 +56,7 @@ class AppConfig:
     camera_date_profile: dict[str, object] | None
     excluded_megadetector_categories: list[str]
     uninteresting_species_labels: list[str]
+    generic_species_labels_to_skip: list[str]
 
 
 @dataclass

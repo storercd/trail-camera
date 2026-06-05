@@ -406,6 +406,7 @@ def extract_preview_frames_for_decisions(
     classify_with_speciesnet: bool,
     speciesnet_model: str,
     speciesnet_geofence: bool,
+    generic_species_labels_to_skip: list[str],
     speciesnet_label_in_filename: bool,
     speciesnet_use_crops: bool,
     species_crop_output_dir: Path,
@@ -424,6 +425,7 @@ def extract_preview_frames_for_decisions(
         classify_with_speciesnet: Run species classification on preview images.
         speciesnet_model: SpeciesNet model identifier, empty for default.
         speciesnet_geofence: Use geofence filtering in SpeciesNet.
+        generic_species_labels_to_skip: Species labels to skip when selecting the primary class.
         speciesnet_label_in_filename: Append species label and score to filenames.
         speciesnet_use_crops: Use MegaDetector bboxes to classify cropped images.
         species_crop_output_dir: Destination folder for saved classification crops.
@@ -454,6 +456,7 @@ def extract_preview_frames_for_decisions(
         classify_with_speciesnet=classify_with_speciesnet,
         speciesnet_model=speciesnet_model or None,
         speciesnet_geofence=speciesnet_geofence,
+        generic_species_labels_to_skip=generic_species_labels_to_skip,
         include_label_in_filename=speciesnet_label_in_filename,
         speciesnet_use_crops=speciesnet_use_crops,
         species_crop_output_dir=species_crop_output_dir,
@@ -579,6 +582,7 @@ def process_single_video(
         classify_with_speciesnet=True,
         speciesnet_model=config.speciesnet_model,
         speciesnet_geofence=config.speciesnet_geofence,
+        generic_species_labels_to_skip=config.generic_species_labels_to_skip,
         speciesnet_label_in_filename=config.speciesnet_label_in_filename,
         speciesnet_use_crops=True,
         species_crop_output_dir=species_crop_output_dir,

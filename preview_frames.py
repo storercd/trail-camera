@@ -137,6 +137,37 @@ def parse_speciesnet_candidates(classifications: Any) -> list[dict[str, Any]]:
     return candidates
 
 
+def select_speciesnet_top_class(
+    candidates: list[dict[str, Any]],
+    generic_labels_to_skip: list[str] | None = None,
+) -> SpeciesClassification | None:
+    """Choose the best SpeciesNet candidate after skipping configured generic labels.
+
+    Returns:
+        SpeciesClassification | None: Preferred top class, or None when no candidates exist.
+    """
+    if not candidates:
+        return None
+
+    skipped_labels = {
+        label.strip().lower() for label in (generic_labels_to_skip or []) if label.strip()
+    }
+    preferred_candidates = [
+        candidate for candidate in candidates if str(candidate.get("label", "")).strip().lower() not in skipped_labels
+    ]
+    candidate_pool = preferred_candidates or candidates
+
+    try:
+        selected = max(candidate_pool, key=lambda candidate: float(candidate.get("score", 0.0)))
+        label = str(selected.get("label") or "unknown")
+        score = float(selected.get("score", 0.0))
+        raw_class = str(selected.get("raw_class") or label)
+    except (TypeError, ValueError):
+        return None
+
+    return SpeciesClassification(label=label, score=score, raw_class=raw_class)
+
+
 def create_species_crop(
     image_path: Path,
     bbox: list[float] | None,
@@ -197,6 +228,7 @@ def classify_preview_images_with_speciesnet(
     image_paths: list[Path],
     model_name: str | None,
     geofence: bool,
+    generic_species_labels_to_skip: list[str] | None = None,
 ) -> tuple[dict[Path, SpeciesClassification], dict[Path, list[dict[str, Any]]], int]:
     """Classify extracted preview images with SpeciesNet.
 
@@ -229,14 +261,15 @@ def classify_preview_images_with_speciesnet(
             failures += 1
             continue
 
-        top_class = parse_speciesnet_top_class(prediction.get("classifications"))
+        candidates = parse_speciesnet_candidates(prediction.get("classifications"))
+        top_class = select_speciesnet_top_class(candidates, generic_species_labels_to_skip)
         if top_class is None:
             failures += 1
             continue
 
         resolved_path = Path(str(filepath)).resolve()
         by_path[resolved_path] = top_class
-        candidates_by_path[resolved_path] = parse_speciesnet_candidates(prediction.get("classifications"))
+        candidates_by_path[resolved_path] = candidates
 
     failures += max(0, len(resolved_paths) - len(by_path))
     return by_path, candidates_by_path, failures
@@ -362,6 +395,7 @@ def run_speciesnet_postprocessing(
     source_paths_by_preview: dict[Path, str],
     speciesnet_model: str | None,
     speciesnet_geofence: bool,
+    generic_species_labels_to_skip: list[str],
     include_label_in_filename: bool,
     speciesnet_use_crops: bool,
     species_crop_padding: float,
@@ -380,6 +414,7 @@ def run_speciesnet_postprocessing(
             image_paths=list(classification_targets.values()),
             model_name=speciesnet_model,
             geofence=speciesnet_geofence,
+            generic_species_labels_to_skip=generic_species_labels_to_skip,
         )
         classified = len(classifications)
     except ModuleNotFoundError as exc:
@@ -460,6 +495,7 @@ def extract_top_frames(
     classify_with_speciesnet: bool = False,
     speciesnet_model: str | None = None,
     speciesnet_geofence: bool = False,
+    generic_species_labels_to_skip: list[str] | None = None,
     include_label_in_filename: bool = True,
     speciesnet_use_crops: bool = True,
     species_crop_output_dir: Path | None = None,
@@ -478,6 +514,7 @@ def extract_top_frames(
         classify_with_speciesnet: Classify extracted images with SpeciesNet.
         speciesnet_model: SpeciesNet model identifier, or None for default.
         speciesnet_geofence: Apply SpeciesNet geofencing if supported.
+        generic_species_labels_to_skip: Species labels to ignore when selecting the primary class.
         include_label_in_filename: Rename previews to include top class and score.
         speciesnet_use_crops: Use bbox crops for species classification when possible.
         species_crop_output_dir: Destination folder for saved crop images.
@@ -542,6 +579,7 @@ def extract_top_frames(
             source_paths_by_preview=source_paths_by_preview,
             speciesnet_model=speciesnet_model,
             speciesnet_geofence=speciesnet_geofence,
+            generic_species_labels_to_skip=generic_species_labels_to_skip or [],
             include_label_in_filename=include_label_in_filename,
             speciesnet_use_crops=speciesnet_use_crops,
             species_crop_padding=species_crop_padding,

@@ -71,6 +71,35 @@ def _load_candidates(raw_candidates: str | None) -> list[dict[str, Any]]:
     return [candidate for candidate in payload if isinstance(candidate, dict)]
 
 
+def _order_candidates_for_display(
+    candidates: list[dict[str, Any]],
+    generic_labels_to_skip: list[str],
+    preferred_label: str | None,
+) -> list[dict[str, Any]]:
+    skipped_labels = {
+        str(label).strip().lower() for label in generic_labels_to_skip if str(label).strip()
+    }
+    preferred_label_normalized = str(preferred_label).strip().lower() if preferred_label else ""
+
+    def sort_key(candidate: dict[str, Any]) -> tuple[int, int, float, str]:
+        label = str(candidate.get("label") or "").strip()
+        normalized_label = label.lower()
+        is_preferred = normalized_label == preferred_label_normalized and preferred_label_normalized != ""
+        is_generic = normalized_label in skipped_labels
+        try:
+            score = float(candidate.get("score", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+        return (
+            0 if is_preferred else 1,
+            1 if is_generic else 0,
+            -score,
+            normalized_label,
+        )
+
+    return sorted(candidates, key=sort_key)
+
+
 def _build_display_names(rows: list[dict[str, Any]]) -> None:
     counts: dict[str, int] = {}
     for row in rows:
@@ -104,6 +133,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
     app = Flask(__name__)
     app.config["METADATA_DB_PATH"] = paths.metadata_db_path
     app.config["CURRENT_PIPELINE_VERSION"] = config.pipeline_version
+    app.config["GENERIC_SPECIES_LABELS_TO_SKIP"] = config.generic_species_labels_to_skip
 
     @app.get("/")
     def list_videos() -> str:
@@ -196,7 +226,11 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
         if video is None:
             abort(404)
         _build_display_names([video])
-        candidates = _load_candidates(video.get("candidates_json"))
+        candidates = _order_candidates_for_display(
+            _load_candidates(video.get("candidates_json")),
+            app.config["GENERIC_SPECIES_LABELS_TO_SKIP"],
+            str(video.get("top_label") or ""),
+        )
         video["is_favorite"] = bool(video.get("is_favorite"))
         return render_template("detail.html", video=video, candidates=candidates)
 
