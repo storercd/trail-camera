@@ -23,7 +23,7 @@ from processing_modes import (
 
 
 def test_ingest_videos_into_catalog_should_return_only_new_sources(tmp_path: Path) -> None:
-    """Return newly discovered sources only after initial catalog ingestion."""
+    """Skip sources only after their cataloged processing has completed."""
     source = tmp_path / "PICT0001.AVI"
     source.write_bytes(b"video-content")
     canonical_root = tmp_path / "videos"
@@ -34,6 +34,20 @@ def test_ingest_videos_into_catalog_should_return_only_new_sources(tmp_path: Pat
         videos=[source],
         canonical_videos_dir=canonical_root,
         metadata_db_path=db_path,
+    )
+    video_id = first_new_sources[0].video_id
+    upsert_processing_state_record(
+        db_path,
+        ProcessingStateRecord(
+            video_id=video_id,
+            pipeline_version="0.1.0",
+            mode="new-only",
+            bucket="interesting",
+            top_confidence=0.9,
+            top_category="1",
+            top_frame=1,
+            status="processed",
+        ),
     )
     second_ingested, second_new_persisted, second_new_sources = ingest_videos_into_catalog(
         videos=[source],
@@ -47,6 +61,31 @@ def test_ingest_videos_into_catalog_should_return_only_new_sources(tmp_path: Pat
     assert second_ingested == 1
     assert second_new_persisted == 0
     assert second_new_sources == []
+
+
+def test_ingest_videos_into_catalog_should_resume_cataloged_unprocessed_source(
+    tmp_path: Path,
+) -> None:
+    """Return a cataloged source when an interrupted run recorded no result."""
+    source = tmp_path / "PICT0001.AVI"
+    source.write_bytes(b"video-content")
+    canonical_root = tmp_path / "videos"
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+
+    _, _, first_sources = ingest_videos_into_catalog(
+        videos=[source],
+        canonical_videos_dir=canonical_root,
+        metadata_db_path=db_path,
+    )
+    _, newly_persisted, resumed_sources = ingest_videos_into_catalog(
+        videos=[source],
+        canonical_videos_dir=canonical_root,
+        metadata_db_path=db_path,
+    )
+
+    assert newly_persisted == 0
+    assert [item.video_id for item in resumed_sources] == [first_sources[0].video_id]
 
 
 def test_ingest_videos_into_catalog_should_not_repersist_known_uninteresting(

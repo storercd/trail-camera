@@ -204,6 +204,24 @@ def video_exists(db_path: Path, video_id: str) -> bool:
     return row is not None
 
 
+def processing_state_exists(db_path: Path, video_id: str) -> bool:
+    """Return whether a video has a recorded processing outcome.
+
+    Args:
+        db_path: Metadata sqlite database path.
+        video_id: Canonical video identifier.
+
+    Returns:
+        bool: True when processing state exists for the given ID.
+    """
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT 1 FROM processing_state WHERE video_id=? LIMIT 1",
+            (video_id,),
+        ).fetchone()
+    return row is not None
+
+
 def delete_video_records(db_path: Path, video_ids: set[str]) -> int:
     """Delete catalog rows for the given video IDs.
 

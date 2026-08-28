@@ -21,6 +21,7 @@ from metadata_store import (
     delete_video_records,
     get_processing_bucket,
     get_stored_original_records,
+    processing_state_exists,
     sync_artifact_path,
     upsert_processing_state_record,
     upsert_video_record,
@@ -133,7 +134,7 @@ def ingest_videos_into_catalog(
             if not had_existing_original:
                 newly_persisted += 1
 
-        if not was_known_video_id:
+        if not processing_state_exists(metadata_db_path, video_id):
             newly_discovered_sources.append(ProcessingSource(source=source, video_id=video_id))
 
         stat = source.stat()
