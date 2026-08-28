@@ -120,20 +120,31 @@ def _build_display_names(rows: list[dict[str, Any]]) -> None:
             row["display_name"] = base_name
 
 
-def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
-    """Create the local reporting app instance.
+def _is_image_source(row: dict[str, Any]) -> bool:
+    """Return whether a catalog row points to an image source file."""
+    supported_extensions = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".bmp",
+        ".gif",
+        ".tif",
+        ".tiff",
+        ".webp",
+    }
+    return str(row.get("source_ext") or "").lower() in supported_extensions
 
-    Returns:
-        Flask: Configured Flask application.
-    """
-    resolved_config_path = Path(config_path)
-    config = load_config(resolved_config_path)
-    paths = build_run_paths(resolved_config_path, config)
 
-    app = Flask(__name__)
-    app.config["METADATA_DB_PATH"] = paths.metadata_db_path
-    app.config["CURRENT_PIPELINE_VERSION"] = config.pipeline_version
-    app.config["GENERIC_SPECIES_LABELS_TO_SKIP"] = config.generic_species_labels_to_skip
+def _register_routes(app: Flask) -> None:
+    """Register reporting routes on the Flask app."""
+    _register_list_route(app)
+    _register_detail_route(app)
+    _register_favorite_route(app)
+    _register_artifact_route(app)
+
+
+def _register_list_route(app: Flask) -> None:
+    """Register the catalog list route."""
 
     @app.get("/")
     def list_videos() -> str:
@@ -184,6 +195,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
         for row in rows:
             row["needs_reprocess"] = row.get("pipeline_version") != app.config["CURRENT_PIPELINE_VERSION"]
             row["is_favorite"] = bool(row.get("is_favorite"))
+            row["is_image_source"] = _is_image_source(row)
         _build_display_names(rows)
 
         total_pages = max(1, ceil(total_count / page_size)) if total_count else 1
@@ -216,6 +228,10 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             current_url=request.full_path,
         )
 
+
+def _register_detail_route(app: Flask) -> None:
+    """Register the catalog detail route."""
+
     @app.get("/video/<video_id>")
     def video_detail(video_id: str) -> str:
         video = get_catalog_video_detail(
@@ -232,7 +248,12 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             str(video.get("top_label") or ""),
         )
         video["is_favorite"] = bool(video.get("is_favorite"))
+        video["is_image_source"] = _is_image_source(video)
         return render_template("detail.html", video=video, candidates=candidates)
+
+
+def _register_favorite_route(app: Flask) -> None:
+    """Register the favorite toggle route."""
 
     @app.post("/video/<video_id>/favorite")
     def favorite_video(video_id: str):
@@ -253,6 +274,10 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             next_path = url_for("list_videos")
         return redirect(next_path)
 
+
+def _register_artifact_route(app: Flask) -> None:
+    """Register the artifact serving route."""
+
     @app.get("/artifact/<video_id>/<artifact_type>")
     def artifact_file(video_id: str, artifact_type: str):
         video = get_catalog_video_detail(
@@ -271,6 +296,23 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
             abort(404)
         mimetype, _ = mimetypes.guess_type(str(artifact_path))
         return send_file(artifact_path, mimetype=mimetype or "application/octet-stream")
+
+
+def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> Flask:
+    """Create the local reporting app instance.
+
+    Returns:
+        Flask: Configured Flask application.
+    """
+    resolved_config_path = Path(config_path)
+    config = load_config(resolved_config_path)
+    paths = build_run_paths(resolved_config_path, config)
+
+    app = Flask(__name__)
+    app.config["METADATA_DB_PATH"] = paths.metadata_db_path
+    app.config["CURRENT_PIPELINE_VERSION"] = config.pipeline_version
+    app.config["GENERIC_SPECIES_LABELS_TO_SKIP"] = config.generic_species_labels_to_skip
+    _register_routes(app)
 
     return app
 

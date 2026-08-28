@@ -1,7 +1,7 @@
-# Folder containing videos
+# Folder containing camera trap media (videos and images)
 input_dir: input
 
-# Folder to receive sorted videos
+# Folder to receive sorted media
 output_dir: output
 
 # SQLite catalog path (relative paths resolve under output_dir)
@@ -16,7 +16,7 @@ model: MDV5A
 # Process every Nth frame (default: 5)
 frame_sample: 5
 
-# Detection confidence threshold for classifying a video as interesting (default: 0.7)
+# Detection confidence threshold for classifying a media file as interesting (default: 0.7)
 interesting_threshold: 0.7
 
 # Category IDs considered interesting. MD default labels are 1=animal, 2=person, 3=vehicle.
@@ -33,8 +33,8 @@ excluded_megadetector_categories:
 # Species labels to force as uninteresting when SpeciesNet top label matches.
 uninteresting_species_labels:
   - blank
-  - eastern gray squirrel
-  - western gray squirrel
+  #- eastern gray squirrel
+  #- western gray squirrel
   - domestic dog
   - canis species
 
@@ -45,13 +45,13 @@ generic_species_labels_to_skip:
   - bird
 move_files: false
 
-# Save uninteresting videos in output/uninteresting; set false to keep only interesting videos
+# Save uninteresting media in output/uninteresting; set false to keep only interesting outputs
 save_uninteresting_files: false
 
-# Clip interesting videos to [first,last] interesting frames, buffered by frame_sample
+# Clip interesting videos to [first,last] interesting frames, buffered by frame_sample (images are copied)
 clip_interesting_videos: true
 
-# Recursively scan input directory for videos
+# Recursively scan input directory for supported media files
 recursive: false
 
 # Enable verbose MegaDetector output while processing

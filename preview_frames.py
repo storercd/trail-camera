@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from contextlib import redirect_stderr
 from dataclasses import dataclass
 from io import StringIO
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+
+from file_ops import is_image_file
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +343,69 @@ def extract_frame(video_path: Path, frame_number: int, output_image: Path) -> bo
     return bool(cv2.imwrite(str(output_image), frame))
 
 
+def copy_image_preview(image_path: Path, output_image: Path) -> bool:
+    """Copy a source image to the preview destination.
+
+    Returns:
+        bool: True when the source exists and copy succeeds.
+    """
+    if not image_path.exists() or not image_path.is_file():
+        return False
+    output_image.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(image_path, output_image)
+    return True
+
+
+def _write_preview_media(source_media: Path, output_image: Path, top_frame: int | None) -> tuple[str, str]:
+    """Write preview output for either an image or a video source.
+
+    Returns:
+        tuple[str, str]: Status and corresponding log message.
+    """
+    if is_image_file(source_media):
+        if copy_image_preview(source_media, output_image):
+            return "extracted", f"Wrote {output_image}"
+        return "failed", f"Failed {source_media.name}: image copy error"
+
+    if top_frame is None or int(top_frame) < 0:
+        return "skipped", f"Skipped {source_media.name}: no valid top_frame"
+    if extract_frame(source_media, int(top_frame), output_image):
+        return "extracted", f"Wrote {output_image}"
+    return "failed", f"Failed {source_media.name}: frame extraction error"
+
+
+def _maybe_create_species_crop(
+    output_image: Path,
+    record: TopFrameRecord,
+    speciesnet_use_crops: bool,
+    species_crop_output_dir: Path | None,
+    species_crop_padding: float,
+    species_crop_output_dirs: dict[str, Path] | None,
+) -> tuple[Path, str]:
+    """Create a crop and return updated classification target and message.
+
+    Returns:
+        tuple[Path, str]: Classification target path and log message.
+    """
+    classification_target = output_image.resolve()
+    message = f"Wrote {output_image}"
+    if not speciesnet_use_crops or species_crop_output_dir is None:
+        return classification_target, message
+
+    crop_output_dir = species_crop_output_dir
+    if species_crop_output_dirs is not None:
+        crop_output_dir = species_crop_output_dirs.get(record.relative_path, crop_output_dir)
+    crop_path = create_species_crop(
+        image_path=output_image,
+        bbox=record.top_bbox,
+        output_dir=crop_output_dir,
+        padding=species_crop_padding,
+    )
+    if crop_path is None:
+        return classification_target, message
+    return crop_path.resolve(), f"Wrote {output_image} and species crop {crop_path}"
+
+
 def process_record_for_preview(
     record: TopFrameRecord,
     input_dir: Path,
@@ -355,38 +421,32 @@ def process_record_for_preview(
     Returns:
         tuple[str, Path | None, Path | None, str]: status, preview path, classification target, log message.
     """
-    if not record.relative_path or record.top_frame is None or int(record.top_frame) < 0:
+    if not record.relative_path:
         return "skipped", None, None, f"Skipped {record.relative_path}: no valid top_frame"
 
-    source_video = input_dir / record.relative_path
-    if not source_video.exists():
-        return "failed", None, None, f"Failed {record.relative_path}: video not found"
+    source_media = input_dir / record.relative_path
+    if not source_media.exists():
+        return "failed", None, None, f"Failed {record.relative_path}: source not found"
 
     output_image = build_output_path(output_dir, record)
     if preview_output_paths is not None:
         mapped_output = preview_output_paths.get(record.relative_path)
         if mapped_output is not None:
             output_image = mapped_output
-    if not extract_frame(source_video, int(record.top_frame), output_image):
-        return "failed", None, None, f"Failed {record.relative_path}: frame extraction error"
 
-    classification_target = output_image.resolve()
-    if speciesnet_use_crops and species_crop_output_dir is not None:
-        crop_output_dir = species_crop_output_dir
-        if species_crop_output_dirs is not None:
-            crop_output_dir = species_crop_output_dirs.get(record.relative_path, crop_output_dir)
-        crop_path = create_species_crop(
-            image_path=output_image,
-            bbox=record.top_bbox,
-            output_dir=crop_output_dir,
-            padding=species_crop_padding,
-        )
-        if crop_path is not None:
-            classification_target = crop_path.resolve()
-            message = f"Wrote {output_image} and species crop {crop_path}"
-            return "extracted", output_image, classification_target, message
+    status, message = _write_preview_media(source_media, output_image, record.top_frame)
+    if status != "extracted":
+        return status, None, None, message
 
-    return "extracted", output_image, classification_target, f"Wrote {output_image}"
+    classification_target, message = _maybe_create_species_crop(
+        output_image=output_image,
+        record=record,
+        speciesnet_use_crops=speciesnet_use_crops,
+        species_crop_output_dir=species_crop_output_dir,
+        species_crop_padding=species_crop_padding,
+        species_crop_output_dirs=species_crop_output_dirs,
+    )
+    return "extracted", output_image, classification_target, message
 
 
 def run_speciesnet_postprocessing(

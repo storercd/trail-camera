@@ -1,7 +1,7 @@
-# Trail Camera Video Sorting
+# Trail Camera Media Sorting
 
-This project runs MegaDetector on videos to detect objects of interest and classifies them using SpeciesNet.
-The pipeline maintains a permanent SQLite catalog of all processed videos with their canonical originals,
+This project runs MegaDetector on camera trap media (videos and images) to detect objects of interest and classifies them using SpeciesNet.
+The pipeline maintains a permanent SQLite catalog of all processed media with their canonical originals,
 classification results, and derivative artifacts (clips, previews, crops).
 
 ## Configuration
@@ -10,8 +10,8 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 
 ### Config keys
 
-- input_dir: Folder containing videos to process
-- output_dir: Root directory for catalog, canonical video storage, and artifacts
+- input_dir: Folder containing camera trap media to process (videos and images)
+- output_dir: Root directory for catalog, canonical media storage, and artifacts
 - metadata_db_path: SQLite metadata catalog location (relative paths resolve under output_dir)
 - pipeline_version: Logical pipeline version stored with processing metadata (default: 0.1.0)
 - model: MegaDetector model identifier or .pt path (default: MDV5A)
@@ -22,8 +22,8 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - uninteresting_species_labels: SpeciesNet top labels to force as uninteresting (case-insensitive)
 - generic_species_labels_to_skip: Generic SpeciesNet labels to ignore so the next most likely specific candidate becomes the primary species
 - move_files: Move source files to canonical storage instead of copying (only effective in new-only mode)
-- save_uninteresting_files: Save videos classified as uninteresting to output/uninteresting
-- clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering
+- save_uninteresting_files: Save media classified as uninteresting to output/uninteresting
+- clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering (images are copied)
 - recursive: No longer has any effect — the pipeline always scans the input directory recursively, including all subdirectories
 - detector_verbose: Enable verbose MegaDetector output while processing
 - generate_html_report: Generate summary.html report output
@@ -68,19 +68,19 @@ Run with a custom config file:
 trail-camera-process --config my_config.yaml
 ```
 
-Run only newly discovered videos (default mode):
+Run only newly discovered media (default mode):
 
 ```bash
 trail-camera-process --mode new-only
 ```
 
-Reset matching catalog rows for videos currently in input and re-ingest as new:
+Reset matching catalog rows for files currently in input and re-ingest as new:
 
 ```bash
 trail-camera-process --mode reprocess-input
 ```
 
-Reprocess already cataloged videos from canonical stored originals:
+Reprocess already cataloged entries from canonical stored originals:
 
 ```bash
 trail-camera-process --mode reprocess-existing

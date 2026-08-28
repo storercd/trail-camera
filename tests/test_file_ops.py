@@ -7,6 +7,8 @@ from file_ops import (
     build_canonical_original_path,
     build_video_storage_dir,
     compute_sha256,
+    find_media_files,
+    find_videos,
     persist_canonical_original,
 )
 
@@ -66,3 +68,29 @@ def test_persist_canonical_original_should_copy_once(tmp_path: Path) -> None:
 
     assert first == second
     assert first.read_bytes() == b"v1"
+
+
+def test_find_media_files_should_include_images_and_videos(tmp_path: Path) -> None:
+    """Discover both video and image files in the input tree."""
+    video = tmp_path / "clip.AVI"
+    image = tmp_path / "photo.JPG"
+    other = tmp_path / "notes.txt"
+    video.write_bytes(b"video")
+    image.write_bytes(b"image")
+    other.write_bytes(b"text")
+
+    media_files = find_media_files(tmp_path, recursive=True)
+
+    assert media_files == [video, image]
+
+
+def test_find_videos_should_exclude_images(tmp_path: Path) -> None:
+    """Keep legacy video-only discovery behavior available."""
+    video = tmp_path / "clip.AVI"
+    image = tmp_path / "photo.JPG"
+    video.write_bytes(b"video")
+    image.write_bytes(b"image")
+
+    videos = find_videos(tmp_path, recursive=True)
+
+    assert videos == [video]

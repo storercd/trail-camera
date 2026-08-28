@@ -1,6 +1,12 @@
 """Tests for SpeciesNet candidate selection helpers."""
 
-from preview_frames import select_speciesnet_top_class
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("cv2")
+
+from preview_frames import TopFrameRecord, process_record_for_preview, select_speciesnet_top_class
 
 
 def test_select_speciesnet_top_class_should_skip_generic_bird_label() -> None:
@@ -44,3 +50,36 @@ def test_select_speciesnet_top_class_should_fallback_when_all_candidates_generic
 
     assert selected is not None
     assert selected.label == "bird"
+
+
+def test_process_record_for_preview_should_copy_image_sources(tmp_path: Path) -> None:
+    """Copy image inputs directly into the preview output path."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    source = input_dir / "photo.jpg"
+    source.write_bytes(b"image-bytes")
+
+    record = TopFrameRecord(
+        relative_path="photo.jpg",
+        output_relative_path="20260710-photo.jpg",
+        top_frame=0,
+        top_confidence=0.9,
+        bucket="interesting",
+        top_bbox=None,
+    )
+
+    status, preview_path, classification_target, message = process_record_for_preview(
+        record=record,
+        input_dir=input_dir,
+        output_dir=output_dir,
+        speciesnet_use_crops=False,
+        species_crop_output_dir=None,
+        species_crop_padding=0.15,
+    )
+
+    assert status == "extracted"
+    assert preview_path is not None
+    assert preview_path.read_bytes() == b"image-bytes"
+    assert classification_target == preview_path.resolve()
+    assert "Wrote" in message

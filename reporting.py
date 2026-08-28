@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from file_ops import is_image_file
 from metadata_store import fetch_catalog_snapshot
 from pipeline_models import AppConfig, VideoDecision
 
@@ -759,6 +760,8 @@ def generate_report_videos(
         if source_video_paths is not None:
             source_video_path = source_video_paths.get(decision.relative_path, source_video_path)
         if not source_video_path.exists():
+            continue
+        if is_image_file(source_video_path):
             continue
 
         web_video_path = web_video_dir / f"{Path(decision.output_relative_path).stem}.mp4"

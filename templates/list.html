@@ -245,7 +245,7 @@
 <body>
     <main>
         <h1>Trail Camera Catalog</h1>
-        <p class="lead">Filter, sort, and review processed videos directly from the SQLite catalog and per-video artifact files.</p>
+        <p class="lead">Filter, sort, and review processed camera trap media directly from the SQLite catalog and per-item artifact files.</p>
         <div class="meta-row">
             <span class="meta-chip">Current pipeline version: {{ current_pipeline_version }}</span>
             <span class="meta-chip">Total matches: {{ total_count }}</span>
@@ -311,7 +311,7 @@
 
             <div class="results-header">
                 {% if not videos %}
-                <p class="muted">No videos match the current filters.</p>
+                <p class="muted">No media files match the current filters.</p>
                 {% endif %}
             </div>
             {% if top_label_counts %}

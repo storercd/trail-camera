@@ -22,6 +22,19 @@ VIDEO_EXTENSIONS = {
     ".m4v",
 }
 
+IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+
+MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +264,7 @@ def get_capture_date(source: Path, camera_date_profile: dict[str, Any] | None = 
     """Return source capture date in YYYY-MM-DD format when available.
 
     Args:
-        source: Source video path.
+        source: Source file path.
         camera_date_profile: Optional camera overlay OCR profile.
 
     Returns:
@@ -338,19 +351,46 @@ def overwrite_canonical_original(
     return destination
 
 
-def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
-    """Find video files in the input directory.
+def is_video_file(path: Path) -> bool:
+    """Return whether a path has a known video extension.
+
+    Returns:
+        bool: True when the suffix matches a configured video extension.
+    """
+    return path.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def is_image_file(path: Path) -> bool:
+    """Return whether a path has a known image extension.
+
+    Returns:
+        bool: True when the suffix matches a configured image extension.
+    """
+    return path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+def find_media_files(input_dir: Path, recursive: bool) -> list[Path]:
+    """Find supported media files in the input directory.
 
     Args:
         input_dir: Directory to scan.
         recursive: Whether to search subdirectories recursively.
 
     Returns:
-        list[Path]: Sorted list of matching video files.
+        list[Path]: Sorted list of matching media files.
     """
     # Always recurse through subfolders to support complex input trees.
     iterator = input_dir.rglob("*")
-    return sorted(p for p in iterator if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
+    return sorted(p for p in iterator if p.is_file() and p.suffix.lower() in MEDIA_EXTENSIONS)
+
+
+def find_videos(input_dir: Path, recursive: bool) -> list[Path]:
+    """Find video files in the input directory.
+
+    Returns:
+        list[Path]: Sorted list of matching video files.
+    """
+    return [path for path in find_media_files(input_dir, recursive) if is_video_file(path)]
 
 
 def make_unique_destination(dest: Path) -> Path:
@@ -395,15 +435,15 @@ def copy_or_move(src: Path, dst: Path, move: bool) -> Path:
     return dst
 
 
-def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
-    """Validate input directory and return matching video files.
+def validate_and_find_media_files(input_dir: Path, recursive: bool) -> list[Path]:
+    """Validate input directory and return matching media files.
 
     Args:
-        input_dir: Directory expected to contain videos.
+        input_dir: Directory expected to contain media files.
         recursive: Whether to search subdirectories.
 
     Returns:
-        list[Path]: Video files discovered for processing.
+        list[Path]: Media files discovered for processing.
 
     Raises:
         SystemExit: If input directory is missing/invalid or no videos are found.
@@ -411,6 +451,22 @@ def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
     if not input_dir.exists() or not input_dir.is_dir():
         raise SystemExit(f"Input directory does not exist: {input_dir}")
 
+    media_files = find_media_files(input_dir, recursive)
+    logger.info("Found %s media file(s) to process", len(media_files))
+    if not media_files:
+        raise SystemExit(f"No media files found in {input_dir}")
+    return media_files
+
+
+def validate_and_find_videos(input_dir: Path, recursive: bool) -> list[Path]:
+    """Validate input directory and return matching video files.
+
+    Returns:
+        list[Path]: Video files discovered for processing.
+
+    Raises:
+        SystemExit: If no videos are found in the input directory.
+    """
     videos = find_videos(input_dir, recursive)
     logger.info("Found %s video(s) to process", len(videos))
     if not videos:

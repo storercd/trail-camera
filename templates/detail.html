@@ -139,7 +139,7 @@
 
         <section class="panel">
             <div class="artifact-links">
-                {% if video.stored_original_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='source_video') }}" target="_blank">Open Original Camera Video</a>{% endif %}
+                {% if video.stored_original_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='source_video') }}" target="_blank">Open Original Camera {{ 'Image' if video.is_image_source else 'Video' }}</a>{% endif %}
                 {% if video.bucketed_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='bucketed_video') }}" target="_blank">Open Clipped Original-Format Video</a>{% endif %}
                 {% if video.report_video_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='report_video') }}" target="_blank">Open Browser-Compatible MP4</a>{% endif %}
                 {% if video.preview_image_path %}<a href="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='preview_image') }}" target="_blank">Open Top Detection Frame Image</a>{% endif %}
@@ -156,6 +156,12 @@
         </section>
 
         <section class="panel media-grid">
+            {% if video.is_image_source %}
+            <section>
+                <h2>Original Camera Image</h2>
+                <img src="{{ url_for('artifact_file', video_id=video.video_id, artifact_type='source_video') }}" alt="Original camera image">
+            </section>
+            {% endif %}
             <section>
                 <h2>Browser-Compatible MP4</h2>
                 {% if video.report_video_path %}

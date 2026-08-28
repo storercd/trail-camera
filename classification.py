@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from file_ops import build_dated_relative_output_path, copy_or_move
+from file_ops import build_dated_relative_output_path, copy_or_move, is_image_file
 from pipeline_models import VideoDecision
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ def analyze_video_result(
         bucket="interesting",
         top_confidence=float(best.get("conf", 0.0)),
         top_category=str(best.get("category", "")),
-        top_frame=int(best.get("frame_number", -1)),
+        top_frame=(int(best.get("frame_number", 0)) if best.get("frame_number") is not None else 0),
         top_bbox=normalized_bbox,
         first_interesting_frame=first_interesting_frame,
         last_interesting_frame=last_interesting_frame,
@@ -264,6 +264,7 @@ def classify_and_sort_videos(
                 and decision.bucket == "interesting"
                 and decision.first_interesting_frame is not None
                 and decision.last_interesting_frame is not None
+                and not is_image_file(source)
             ):
                 from video_clipping import clip_video_by_frame_window
 

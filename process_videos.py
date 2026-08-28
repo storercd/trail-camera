@@ -12,7 +12,7 @@ from typing import Any
 
 from classification import classify_and_sort_videos, compute_bucket_counts
 from detector_runner import load_results, run_detector
-from file_ops import compute_sha256, find_videos, overwrite_canonical_original
+from file_ops import compute_sha256, find_media_files, overwrite_canonical_original
 from metadata_store import (
     SpeciesClassificationRecord,
     delete_species_classification_record,
@@ -80,7 +80,7 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Run MegaDetector on videos and sort originals using values "
+            "Run MegaDetector on camera trap media and sort originals using values "
             "loaded from a YAML config file."
         )
     )
@@ -121,7 +121,12 @@ def configure_logging(level_name: str) -> None:
         level_name: Desired log level name (for example, INFO or DEBUG).
     """
     level = getattr(logging, level_name.upper(), logging.INFO)
-    logging.basicConfig(level=level, format="%(levelname)s %(message)s", force=True)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+        force=True,
+    )
     for noisy_logger_name in (
         "megadetector",
         "speciesnet",
@@ -827,9 +832,9 @@ def _find_input_videos_for_processing(input_dir: Path, recursive: bool) -> list[
     if not input_dir.exists() or not input_dir.is_dir():
         raise SystemExit(f"Input directory does not exist: {input_dir}")
 
-    discovered_videos = find_videos(input_dir, recursive)
-    logger.info("Found %s video(s) to process", len(discovered_videos))
-    return discovered_videos
+    discovered_media = find_media_files(input_dir, recursive)
+    logger.info("Found %s media file(s) to process", len(discovered_media))
+    return discovered_media
 
 
 def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> list[ProcessingSource]:
@@ -851,7 +856,7 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             ),
         )
         logger.info(
-            "Catalog ingestion complete: videos=%s new_canonical_originals=%s new_videos=%s",
+            "Catalog ingestion complete: media=%s new_canonical_originals=%s new_sources=%s",
             ingested_count,
             newly_persisted_count,
             len(newly_discovered_sources),
@@ -864,7 +869,7 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             input_videos=discovered_videos,
         )
         logger.info(
-            "Reset %s input video catalog record(s) and %s canonical file(s) before re-ingest",
+            "Reset %s input catalog record(s) and %s canonical file(s) before re-ingest",
             deleted_records,
             deleted_files,
         )
@@ -879,7 +884,7 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             ),
         )
         logger.info(
-            "Re-ingested input videos as new records: videos=%s new_canonical_originals=%s new_videos=%s",
+            "Re-ingested input media as new records: media=%s new_canonical_originals=%s new_sources=%s",
             ingested_count,
             newly_persisted_count,
             len(newly_discovered_sources),
@@ -1168,7 +1173,7 @@ def _build_input_video_hash_map(input_dir: Path, recursive: bool, needed_ids: se
     Returns:
         dict[str, Path]: Video ID to discovered input path map.
     """
-    discovered_videos = find_videos(input_dir, recursive)
+    discovered_videos = find_media_files(input_dir, recursive)
     input_by_hash: dict[str, Path] = {}
     for candidate in discovered_videos:
         try:
