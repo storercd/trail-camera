@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1029,6 +1030,26 @@ def _print_video_result(source: ProcessingSource, decisions: list[VideoDecision]
     )
 
 
+def estimate_remaining_time(
+    elapsed_seconds: float,
+    completed_files: int,
+    remaining_files: int,
+) -> str | None:
+    """Estimate processing time remaining from completed-file durations.
+
+    Returns:
+        str | None: Human-readable remaining duration, or None before a file completes.
+    """
+    if completed_files == 0:
+        return None
+    estimated_seconds = round(elapsed_seconds / completed_files * remaining_files)
+    hours, remaining_seconds = divmod(estimated_seconds, 3600)
+    minutes, seconds = divmod(remaining_seconds, 60)
+    if hours:
+        return f"{hours}h {minutes}m remaining" if seconds == 0 else f"{hours}h {minutes}m {seconds}s remaining"
+    return f"{minutes}m remaining" if seconds == 0 else f"{minutes}m {seconds}s remaining"
+
+
 def _process_sources_sequential(
     processing_sources: list[ProcessingSource],
     paths: Any,
@@ -1050,14 +1071,21 @@ def _process_sources_sequential(
 
         indexed_sources = list(enumerate(processing_sources, 1))
         accumulator.sources_by_index = {index: source for index, source in indexed_sources}
+        processing_started_at = time.monotonic()
 
         for index, source in indexed_sources:
+            remaining_time = estimate_remaining_time(
+                elapsed_seconds=time.monotonic() - processing_started_at,
+                completed_files=index - 1,
+                remaining_files=len(processing_sources) - index + 1,
+            )
             logger.info(
-                "[%s/%s] Processing %s (%s...)",
+                "[%s/%s] Processing %s (%s...)%s",
                 index,
                 len(processing_sources),
                 source.source.name,
                 source.video_id[:8],
+                f" (estimated {remaining_time})" if remaining_time is not None else "",
             )
             try:
                 (
