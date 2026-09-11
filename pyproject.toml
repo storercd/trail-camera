@@ -33,12 +33,14 @@ dev = [
 [project.scripts]
 trail-camera-process = "process_videos:main"
 trail-camera-report = "report_app:main"
+trail-camera-ingest-card = "memory_card_ingest:main"
 
 [tool.setuptools]
 py-modules = [
     "classification",
     "detector_runner",
     "file_ops",
+    "memory_card_ingest",
     "metadata_store",
     "pipeline_config",
     "pipeline_models",

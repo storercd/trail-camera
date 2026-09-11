@@ -62,6 +62,32 @@ Run with the default config file:
 trail-camera-process
 ```
 
+Ingest media from a mounted memory card into configured input_dir:
+
+```bash
+trail-camera-ingest-card
+```
+
+By default, successful ingest ejects the memory card.
+
+Ingest from a custom mount root and keep source files on the card:
+
+```bash
+trail-camera-ingest-card --mount-root /Volumes --no-delete
+```
+
+Skip eject at the end when needed:
+
+```bash
+trail-camera-ingest-card --no-eject
+```
+
+Override destination directory and enable SHA-256 verification:
+
+```bash
+trail-camera-ingest-card --destination-dir input --verify-sha256
+```
+
 Run with a custom config file:
 
 ```bash
