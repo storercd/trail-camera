@@ -1310,6 +1310,18 @@ def main() -> int:
 
     processing_sources = _load_processing_sources_for_mode(args.mode, paths, config)
     if not processing_sources:
+        if args.mode == "new-only":
+            discovered_input_files = _find_input_videos_for_processing(paths.input_dir, config.recursive)
+            deleted_input_files = delete_processed_input_files(
+                source_decisions=[],
+                input_dir=paths.input_dir,
+                discovered_input_files=discovered_input_files,
+            )
+            if deleted_input_files:
+                logger.info(
+                    "Deleted %s redundant input file(s) already cataloged and processed",
+                    deleted_input_files,
+                )
         purged_species_rows = run_catalog_species_maintenance(
             metadata_db_path=paths.metadata_db_path,
             uninteresting_species_labels=config.uninteresting_species_labels,
@@ -1426,6 +1438,10 @@ def main() -> int:
     if purged_species_rows:
         logger.info("Purged uninteresting species rows: %s", purged_species_rows)
 
+    discovered_input_files = []
+    if args.mode in {"new-only", "reprocess-input"}:
+        discovered_input_files = _find_input_videos_for_processing(paths.input_dir, config.recursive)
+
     deleted_input_files = delete_processed_input_files(
         source_decisions=[
             (accumulator.processing_sources_by_decision[index], decision)
@@ -1433,6 +1449,7 @@ def main() -> int:
             if index in accumulator.processing_sources_by_decision
         ],
         input_dir=paths.input_dir,
+        discovered_input_files=discovered_input_files,
     )
     if deleted_input_files:
         logger.info("Deleted %s processed input file(s) after successful processing", deleted_input_files)

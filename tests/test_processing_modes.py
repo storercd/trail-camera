@@ -262,6 +262,64 @@ def test_delete_processed_input_files_should_remove_successful_sources_only(tmp_
     assert failed_source.exists()
 
 
+def test_delete_processed_input_files_should_remove_redundant_discovered_files(tmp_path: Path) -> None:
+    """Delete all successful inputs, including media that was redundant in the run."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    success_source = input_dir / "processed.AVI"
+    success_source.write_bytes(b"processed")
+    redundant_source = input_dir / "redundant.AVI"
+    redundant_source.write_bytes(b"redundant")
+    failed_source = input_dir / "failed.AVI"
+    failed_source.write_bytes(b"failed")
+
+    from processing_modes import delete_processed_input_files
+
+    deleted = delete_processed_input_files(
+        source_decisions=[
+            (
+                ProcessingSource(source=success_source, video_id="success-id"),
+                VideoDecision(
+                    relative_path="processed.AVI",
+                    output_relative_path="interesting/processed.AVI",
+                    bucket="interesting",
+                    top_confidence=0.9,
+                    top_category="1",
+                    top_frame=1,
+                    top_bbox=None,
+                    first_interesting_frame=1,
+                    last_interesting_frame=2,
+                    num_detections=1,
+                    failure=None,
+                ),
+            ),
+            (
+                ProcessingSource(source=failed_source, video_id="failed-id"),
+                VideoDecision(
+                    relative_path="failed.AVI",
+                    output_relative_path="failed/failed.AVI",
+                    bucket="failed",
+                    top_confidence=None,
+                    top_category=None,
+                    top_frame=None,
+                    top_bbox=None,
+                    first_interesting_frame=None,
+                    last_interesting_frame=None,
+                    num_detections=0,
+                    failure="detector error",
+                ),
+            ),
+        ],
+        input_dir=input_dir,
+        discovered_input_files=[success_source, redundant_source, failed_source],
+    )
+
+    assert deleted == 2
+    assert not success_source.exists()
+    assert not redundant_source.exists()
+    assert failed_source.exists()
+
+
 def test_record_processing_results_should_clear_unsaved_uninteresting_artifact(
     tmp_path: Path,
 ) -> None:

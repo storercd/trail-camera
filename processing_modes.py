@@ -470,42 +470,62 @@ def prune_uninteresting_canonical_sources(
 def delete_processed_input_files(
     source_decisions: list[tuple[ProcessingSource, VideoDecision]],
     input_dir: Path,
+    discovered_input_files: list[Path] | None = None,
 ) -> int:
-    """Delete successfully processed input files while leaving failed ones in place.
+    """Delete all non-failed input files for a successful run, including redundant discoveries.
 
     Args:
         source_decisions: Source/decision pairs for this run.
         input_dir: Root input directory used to discover source media.
+        discovered_input_files: All media discovered under input_dir for this run.
 
     Returns:
         int: Number of input files deleted.
     """
-    if not source_decisions:
+    if not source_decisions and not discovered_input_files:
         return 0
 
     input_root = input_dir.resolve()
-    deleted_count = 0
+    failed_paths: set[Path] = set()
+    processed_paths: set[Path] = set()
 
     for source, decision in source_decisions:
+        resolved_source = source.source.resolve()
+        processed_paths.add(resolved_source)
         if decision.bucket == "failed":
-            continue
-        source_path = source.source
-        if not source_path.exists() or not source_path.is_file():
+            failed_paths.add(resolved_source)
+
+    candidates: list[Path]
+    if discovered_input_files is not None:
+        candidates = list(discovered_input_files)
+    else:
+        candidates = [source.source for source, _ in source_decisions]
+
+    seen: set[Path] = set()
+    deleted_count = 0
+    for candidate in candidates:
+        if not candidate.exists() or not candidate.is_file():
             continue
 
         try:
-            source_path.relative_to(input_root)
+            candidate.relative_to(input_root)
         except ValueError:
             continue
 
-        try:
-            source_path.unlink()
-            deleted_count += 1
-            logger.info("Deleted processed input file: %s", source_path)
-        except FileNotFoundError:
+        resolved_candidate = candidate.resolve()
+        if resolved_candidate in failed_paths or resolved_candidate in seen:
             continue
-        except OSError:
-            logger.warning("Failed to delete processed input file: %s", source_path)
+        seen.add(resolved_candidate)
+
+        if resolved_candidate in processed_paths or discovered_input_files is not None:
+            try:
+                candidate.unlink()
+                deleted_count += 1
+                logger.info("Deleted processed input file: %s", candidate)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                logger.warning("Failed to delete processed input file: %s", candidate)
 
     return deleted_count
 
