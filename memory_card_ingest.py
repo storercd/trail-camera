@@ -15,6 +15,13 @@ from pipeline_config import DEFAULT_CONFIG_PATH, load_config
 DEFAULT_CARD_MOUNT_ROOT = Path("/Volumes")
 DEFAULT_CARD_MARKER_DIRNAME = "DCIM"
 LOGGER = logging.getLogger(__name__)
+ANSI_GREEN = "\033[32m"
+ANSI_RESET = "\033[0m"
+
+
+def _green_log_message(message: str) -> str:
+    """Wrap a log message in ANSI green styling for terminal clarity."""
+    return f"{ANSI_GREEN}{message}{ANSI_RESET}"
 
 
 @dataclass(frozen=True)
@@ -157,7 +164,7 @@ def run_memory_card_ingest(
     ejected = False
     if eject_card:
         eject_memory_card(card_root)
-        LOGGER.info("ejected memory card at %s", card_root)
+        LOGGER.info(_green_log_message("ejected memory card at %s"), card_root)
         ejected = True
 
     copied_targets = tuple(target_path for _, target_path in copy_plan)
