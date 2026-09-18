@@ -353,8 +353,6 @@ def test_main_should_purge_species_rows_when_no_videos_selected(
                 "clip_interesting_videos: true",
                 "recursive: false",
                 "detector_verbose: false",
-                "generate_html_report: false",
-                "auto_open_html_report: false",
                 "write_json_exports: false",
                 "preview_output_dir: preview_frames",
                 "preview_include_uninteresting: false",

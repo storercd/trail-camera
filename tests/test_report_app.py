@@ -100,8 +100,6 @@ def _write_config(tmp_path: Path, db_path: Path) -> Path:
                 "clip_interesting_videos: true",
                 "recursive: true",
                 "detector_verbose: false",
-                "generate_html_report: true",
-                "auto_open_html_report: false",
                 "write_json_exports: true",
                 "preview_output_dir: preview_frames",
                 "preview_include_uninteresting: false",

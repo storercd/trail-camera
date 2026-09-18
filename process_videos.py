@@ -48,12 +48,7 @@ from processing_modes import (
     reset_input_videos_for_reingest,
     stage_single_processing_input,
 )
-from reporting import (
-    generate_report_videos,
-    open_file_in_default_app,
-    write_html_summary_from_catalog,
-    write_sqlite_snapshot_export,
-)
+from reporting import generate_report_videos, write_sqlite_snapshot_export
 
 logger = logging.getLogger(__name__)
 
@@ -793,7 +788,7 @@ def _print_runtime_header(paths: Any, config: Any, mode: str) -> None:
 
 
 def _write_optional_reports(paths: Any, config: Any) -> None:
-    """Write optional summary exports and HTML reports based on config."""
+    """Write optional summary exports based on config."""
     if config.write_json_exports:
         write_sqlite_snapshot_export(
             summary_path=paths.summary_path,
@@ -805,21 +800,6 @@ def _write_optional_reports(paths: Any, config: Any) -> None:
         logger.info("Wrote summary metadata: %s", paths.summary_path)
     else:
         logger.debug("JSON exports disabled by config")
-
-    if not config.generate_html_report:
-        logger.debug("HTML summary disabled by config")
-        return
-
-    write_html_summary_from_catalog(
-        html_summary_path=paths.html_summary_path,
-        metadata_db_path=paths.metadata_db_path,
-    )
-    logger.info("Wrote HTML summary: %s", paths.html_summary_path)
-    if config.auto_open_html_report:
-        if open_file_in_default_app(paths.html_summary_path):
-            logger.info("Opened HTML summary in default app: %s", paths.html_summary_path)
-        else:
-            logger.warning("Failed to open HTML summary automatically: %s", paths.html_summary_path)
 
 
 def _find_input_videos_for_processing(input_dir: Path, recursive: bool) -> list[Path]:

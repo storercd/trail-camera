@@ -57,12 +57,6 @@ recursive: false
 # Enable verbose MegaDetector output while processing
 detector_verbose: false
 
-# Generate summary.html report file
-generate_html_report: true
-
-# Open summary.html automatically in the default browser/app after generation
-auto_open_html_report: true
-
 # Write compatibility JSON exports from SQLite snapshots
 write_json_exports: true
 

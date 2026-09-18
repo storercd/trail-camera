@@ -4,8 +4,51 @@ import json
 from pathlib import Path
 
 from metadata_store import VideoCatalogRecord, initialize_metadata_store, upsert_video_record
+from pipeline_config import build_run_paths, load_config
 from pipeline_models import AppConfig
 from reporting import write_sqlite_snapshot_export
+
+
+def test_legacy_html_summary_config_should_be_removed(tmp_path: Path) -> None:
+    """Legacy HTML summary flags and output path should no longer be part of the runtime config."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+input_dir: input
+output_dir: output
+metadata_db_path: metadata/catalog.sqlite3
+pipeline_version: 0.1.0
+model: MDV5A
+frame_sample: 5
+interesting_threshold: 0.7
+interesting_categories: ['1', '2', '3']
+move_files: false
+save_uninteresting_files: false
+clip_interesting_videos: true
+recursive: false
+detector_verbose: false
+write_json_exports: true
+preview_output_dir: preview_frames
+preview_include_uninteresting: false
+speciesnet_model: ''
+speciesnet_geofence: false
+speciesnet_label_in_filename: true
+species_crop_output_dir: preview_species_crops
+species_crop_padding: 0.15
+capture_date_source: filesystem
+excluded_megadetector_categories: ['3']
+uninteresting_species_labels: ['blank']
+generic_species_labels_to_skip: ['bird']
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert not hasattr(config, "generate_html_report")
+    assert not hasattr(config, "auto_open_html_report")
+
+    run_paths = build_run_paths(config_path, config)
+    assert not hasattr(run_paths, "html_summary_path")
 
 
 def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Path) -> None:
@@ -39,8 +82,6 @@ def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Pat
         clip_interesting_videos=True,
         recursive=True,
         detector_verbose=False,
-        generate_html_report=True,
-        auto_open_html_report=False,
         write_json_exports=True,
         preview_output_dir="preview_frames",
         preview_include_uninteresting=False,

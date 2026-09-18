@@ -71,8 +71,6 @@ def _build_app_config(raw_config: dict[str, object], config_path: Path) -> AppCo
             clip_interesting_videos=bool(raw_config.get("clip_interesting_videos", True)),
             recursive=bool(raw_config.get("recursive", False)),
             detector_verbose=bool(raw_config.get("detector_verbose", False)),
-            generate_html_report=bool(raw_config.get("generate_html_report", True)),
-            auto_open_html_report=bool(raw_config.get("auto_open_html_report", False)),
             write_json_exports=bool(raw_config.get("write_json_exports", True)),
             preview_output_dir=str(raw_config.get("preview_output_dir", "preview_frames")),
             preview_include_uninteresting=bool(raw_config.get("preview_include_uninteresting", False)),
@@ -179,7 +177,6 @@ def build_run_paths(config_path: Path, config: AppConfig) -> RunPaths:
         metadata_db_path=metadata_db_path,
         md_results_path=metadata_dir / "megadetector_results.json",
         summary_path=metadata_dir / "summary.json",
-        html_summary_path=metadata_dir / "summary.html",
     )
 
 

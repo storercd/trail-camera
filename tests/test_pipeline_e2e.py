@@ -20,7 +20,6 @@ from metadata_store import (
 from pipeline_models import AppConfig
 from process_videos import merge_species_classification_reports
 from processing_modes import ingest_videos_into_catalog, load_reprocess_sources
-from reporting import write_html_summary_from_catalog
 
 
 @pytest.fixture
@@ -106,8 +105,6 @@ def _create_minimal_config(workspace: dict[str, Any]) -> AppConfig:
         clip_interesting_videos=True,
         recursive=False,
         detector_verbose=False,
-        generate_html_report=True,
-        auto_open_html_report=False,
         write_json_exports=True,
         preview_output_dir="preview_frames",
         preview_include_uninteresting=False,
@@ -309,18 +306,9 @@ class TestReportOnlyMode:
             artifact_path=interesting_video,
         )
 
-        # Generate HTML report from catalog
-        html_path = tmp_workspace["output"] / "metadata" / "summary.html"
-        write_html_summary_from_catalog(
-            html_summary_path=html_path,
-            metadata_db_path=tmp_workspace["metadata_db"],
-        )
-
-        # Verify HTML was generated
-        assert html_path.exists()
-        html_content = html_path.read_text()
-        assert "test.avi" in html_content
-        assert "domestic dog" in html_content
+        snapshot = fetch_catalog_snapshot(tmp_workspace["metadata_db"])
+        assert snapshot["videos"][0]["original_filename"] == "test.avi"
+        assert snapshot["species_classifications"][0]["top_label"] == "domestic dog"
 
     def test_report_should_include_all_artifacts(self, tmp_workspace: dict[str, Any]) -> None:
         """Report should include all artifact types stored in catalog."""
@@ -365,15 +353,14 @@ class TestReportOnlyMode:
                 artifact_path=artifact_path,
             )
 
-        # Generate report
-        html_path = tmp_workspace["output"] / "metadata" / "summary.html"
-        write_html_summary_from_catalog(
-            html_summary_path=html_path,
-            metadata_db_path=tmp_workspace["metadata_db"],
-        )
-
-        # Verify report includes references to artifacts
-        assert html_path.exists()
+        snapshot = fetch_catalog_snapshot(tmp_workspace["metadata_db"])
+        assert len(snapshot["artifacts"]) == 4
+        assert {row["artifact_type"] for row in snapshot["artifacts"]} == {
+            "bucketed_video",
+            "report_video",
+            "preview_image",
+            "species_crop",
+        }
 
 
 class TestCollisionHandling:

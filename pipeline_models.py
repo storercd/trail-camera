@@ -42,8 +42,6 @@ class AppConfig:
     clip_interesting_videos: bool
     recursive: bool
     detector_verbose: bool
-    generate_html_report: bool
-    auto_open_html_report: bool
     write_json_exports: bool
     preview_output_dir: str
     preview_include_uninteresting: bool
@@ -72,4 +70,3 @@ class RunPaths:
     metadata_db_path: Path
     md_results_path: Path
     summary_path: Path
-    html_summary_path: Path

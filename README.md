@@ -26,8 +26,6 @@ All runtime settings are loaded from [process_videos.config.yaml](process_videos
 - clip_interesting_videos: Clip interesting videos to the detected frame window with frame_sample buffering (images are copied)
 - recursive: No longer has any effect — the pipeline always scans the input directory recursively, including all subdirectories
 - detector_verbose: Enable verbose MegaDetector output while processing
-- generate_html_report: Generate summary.html report output
-- auto_open_html_report: Open summary.html in the default local app after it is generated
 - write_json_exports: Write compatibility JSON exports (summary snapshot) from SQLite
 - preview_output_dir: Output folder for top-frame preview images (relative to run output unless absolute)
 - preview_include_uninteresting: Include uninteresting videos when extracting previews
@@ -130,7 +128,7 @@ from the metadata catalog and processes those videos without requiring camera
 card input files.
 
 Browser-playable report_videos are generated on every processing pass.
-The HTML summary file itself is still controlled by generate_html_report.
+The local reporting app is the supported reporting interface; it reads the SQLite catalog and artifact files directly.
 
 ## Design Notes
 
@@ -203,9 +201,6 @@ When write_json_exports is true, summary.json is written as a snapshot exported
 from the SQLite metadata catalog. Set write_json_exports to false to skip JSON
 exports while keeping SQLite as the source of truth.
 
-When auto_open_html_report is true, the generated summary.html is opened in the
-default local browser/app after the file is written.
-
 When clip_interesting_videos is true, each interesting output video is trimmed to
 the first and last interesting detection frame, expanded by frame_sample on both
 sides (bounded by video start/end).
@@ -252,6 +247,6 @@ scripts/setup_env.sh --recreate
 
 - Metadata catalog (SQLite): `output/metadata/catalog.sqlite3` (persistent, expandable with each processing run)
 - Canonical video storage: `output/videos/<shard>/<shard>/<video_id>/` with source, interesting clips, reports, previews, crops
-- Metadata exports: `output/metadata/megadetector_results.json`, `output/metadata/summary.json`, `output/metadata/summary.html`, `output/metadata/species_classifications.json`
+- Metadata exports: `output/metadata/megadetector_results.json`, `output/metadata/summary.json`, `output/metadata/species_classifications.json`
 - Preview images: `output/preview_frames/*.jpg` (or configured preview_output_dir)
 - Species crops: `output/preview_species_crops/*.jpg` (or configured species_crop_output_dir)
