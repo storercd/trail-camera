@@ -15,6 +15,7 @@ from metadata_store import (
 )
 from pipeline_models import VideoDecision
 from processing_modes import (
+    ProcessingSource,
     ingest_videos_into_catalog,
     load_reprocess_sources,
     record_processing_results,
@@ -205,6 +206,60 @@ def test_load_reprocess_sources_should_skip_missing_files(tmp_path: Path) -> Non
     assert len(sources) == 1
     assert sources[0].video_id == "vid-existing"
     assert sources[0].source == existing
+
+
+def test_delete_processed_input_files_should_remove_successful_sources_only(tmp_path: Path) -> None:
+    """Delete input files only after a successful processing decision."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    success_source = input_dir / "processed.AVI"
+    success_source.write_bytes(b"processed")
+    failed_source = input_dir / "failed.AVI"
+    failed_source.write_bytes(b"failed")
+
+    from processing_modes import delete_processed_input_files
+
+    deleted = delete_processed_input_files(
+        source_decisions=[
+            (
+                ProcessingSource(source=success_source, video_id="success-id"),
+                VideoDecision(
+                    relative_path="processed.AVI",
+                    output_relative_path="interesting/processed.AVI",
+                    bucket="interesting",
+                    top_confidence=0.9,
+                    top_category="1",
+                    top_frame=1,
+                    top_bbox=None,
+                    first_interesting_frame=1,
+                    last_interesting_frame=2,
+                    num_detections=1,
+                    failure=None,
+                ),
+            ),
+            (
+                ProcessingSource(source=failed_source, video_id="failed-id"),
+                VideoDecision(
+                    relative_path="failed.AVI",
+                    output_relative_path="failed/failed.AVI",
+                    bucket="failed",
+                    top_confidence=None,
+                    top_category=None,
+                    top_frame=None,
+                    top_bbox=None,
+                    first_interesting_frame=None,
+                    last_interesting_frame=None,
+                    num_detections=0,
+                    failure="detector error",
+                ),
+            ),
+        ],
+        input_dir=input_dir,
+    )
+
+    assert deleted == 1
+    assert not success_source.exists()
+    assert failed_source.exists()
 
 
 def test_record_processing_results_should_clear_unsaved_uninteresting_artifact(

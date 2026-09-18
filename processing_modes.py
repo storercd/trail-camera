@@ -467,6 +467,49 @@ def prune_uninteresting_canonical_sources(
             stored_original.unlink()
 
 
+def delete_processed_input_files(
+    source_decisions: list[tuple[ProcessingSource, VideoDecision]],
+    input_dir: Path,
+) -> int:
+    """Delete successfully processed input files while leaving failed ones in place.
+
+    Args:
+        source_decisions: Source/decision pairs for this run.
+        input_dir: Root input directory used to discover source media.
+
+    Returns:
+        int: Number of input files deleted.
+    """
+    if not source_decisions:
+        return 0
+
+    input_root = input_dir.resolve()
+    deleted_count = 0
+
+    for source, decision in source_decisions:
+        if decision.bucket == "failed":
+            continue
+        source_path = source.source
+        if not source_path.exists() or not source_path.is_file():
+            continue
+
+        try:
+            source_path.relative_to(input_root)
+        except ValueError:
+            continue
+
+        try:
+            source_path.unlink()
+            deleted_count += 1
+            logger.info("Deleted processed input file: %s", source_path)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.warning("Failed to delete processed input file: %s", source_path)
+
+    return deleted_count
+
+
 def record_processing_results(
     decisions: list[VideoDecision],
     staged_video_ids: dict[str, str],

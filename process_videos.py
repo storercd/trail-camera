@@ -41,6 +41,7 @@ from processing_modes import (
     build_species_crop_output_dirs,
     build_video_storage_dir,
     collect_species_artifact_maps,
+    delete_processed_input_files,
     ingest_videos_into_catalog,
     load_reprocess_sources,
     record_processing_results,
@@ -1424,6 +1425,17 @@ def main() -> int:
     )
     if purged_species_rows:
         logger.info("Purged uninteresting species rows: %s", purged_species_rows)
+
+    deleted_input_files = delete_processed_input_files(
+        source_decisions=[
+            (accumulator.processing_sources_by_decision[index], decision)
+            for index, decision in enumerate(accumulator.all_decisions)
+            if index in accumulator.processing_sources_by_decision
+        ],
+        input_dir=paths.input_dir,
+    )
+    if deleted_input_files:
+        logger.info("Deleted %s processed input file(s) after successful processing", deleted_input_files)
 
     logger.info(
         "Preview extraction complete: candidates=%s extracted=%s skipped=%s failed=%s "
