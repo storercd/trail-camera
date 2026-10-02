@@ -54,6 +54,16 @@ py-modules = [
 
 [tool.uv]
 environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+override-dependencies = [
+    "protobuf>=4.25",
+    # opencv-python-headless (pulled in transitively via roboflow) installs
+    # into the same `cv2` package as our pinned opencv-python and silently
+    # wins, swapping in an unrelated OpenCV build/version at runtime (a 5.0.0
+    # build was observed, ~40x slower for the camera-overlay OCR step vs the
+    # pinned 4.11.0.86). Pin it to the same version so only one real build is
+    # ever installed, regardless of install order.
+    "opencv-python-headless==4.11.0.86",
+]
 
 [tool.uv.extra-build-dependencies]
 onnx = ["cmake>=3.26,<4"]

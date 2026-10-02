@@ -4,6 +4,7 @@ output/
 
 # dev environment
 venv/
+.venv/
 __pycache__/
 
 # OS files

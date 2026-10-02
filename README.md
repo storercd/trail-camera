@@ -39,31 +39,23 @@ These descriptions are preserved from the original command-line parameter help t
 
 ## Usage
 
-Install the project using your local machine Python environment
-(without re-resolving heavy ML dependencies):
+This project is managed with [uv](https://docs.astral.sh/uv/). Install uv,
+then create the environment and install dependencies in one step:
 
 ```bash
-python3 -m pip install --user -e . --no-deps
+uv sync
 ```
-
-Ensure your user scripts directory is on PATH:
-
-```bash
-export PATH="$HOME/Library/Python/3.12/bin:$PATH"
-```
-
-To persist this for future terminals, add the same line to `~/.zshrc`.
 
 Run with the default config file:
 
 ```bash
-trail-camera-process
+uv run trail-camera-process
 ```
 
 Ingest media from a mounted memory card into configured input_dir:
 
 ```bash
-trail-camera-ingest-card
+uv run trail-camera-ingest-card
 ```
 
 By default, successful ingest ejects the memory card.
@@ -71,49 +63,49 @@ By default, successful ingest ejects the memory card.
 Ingest from a custom mount root and keep source files on the card:
 
 ```bash
-trail-camera-ingest-card --mount-root /Volumes --no-delete
+uv run trail-camera-ingest-card --mount-root /Volumes --no-delete
 ```
 
 Skip eject at the end when needed:
 
 ```bash
-trail-camera-ingest-card --no-eject
+uv run trail-camera-ingest-card --no-eject
 ```
 
 Override destination directory and enable SHA-256 verification:
 
 ```bash
-trail-camera-ingest-card --destination-dir input --verify-sha256
+uv run trail-camera-ingest-card --destination-dir input --verify-sha256
 ```
 
 Run with a custom config file:
 
 ```bash
-trail-camera-process --config my_config.yaml
+uv run trail-camera-process --config my_config.yaml
 ```
 
 Run only newly discovered media (default mode):
 
 ```bash
-trail-camera-process --mode new-only
+uv run trail-camera-process --mode new-only
 ```
 
 Reset matching catalog rows for files currently in input and re-ingest as new:
 
 ```bash
-trail-camera-process --mode reprocess-input
+uv run trail-camera-process --mode reprocess-input
 ```
 
 Reprocess already cataloged entries from canonical stored originals:
 
 ```bash
-trail-camera-process --mode reprocess-existing
+uv run trail-camera-process --mode reprocess-existing
 ```
 
 Generate reports only from SQLite + artifact files, without reprocessing videos:
 
 ```bash
-trail-camera-process --mode report-only
+uv run trail-camera-process --mode report-only
 ```
 
 Top-frame preview extraction, SpeciesNet classification, and species-crop
@@ -154,7 +146,7 @@ When a SpeciesNet result is too generic (for example `bird`), the pipeline can s
 Run the local SQLite-backed reporting app:
 
 ```bash
-trail-camera-report --config process_videos.config.yaml
+uv run trail-camera-report --config process_videos.config.yaml
 ```
 
 The app starts a local HTTP server, defaulting to `http://127.0.0.1:8000`.
@@ -181,13 +173,13 @@ To reclaim disk space for already-processed videos that match uninteresting filt
 run:
 
 ```bash
-/usr/local/bin/python3 scripts/cleanup_uninteresting.py --config process_videos.config.yaml
+uv run scripts/cleanup_uninteresting.py --config process_videos.config.yaml
 ```
 
 Use dry-run mode first to review matches:
 
 ```bash
-/usr/local/bin/python3 scripts/cleanup_uninteresting.py --config process_videos.config.yaml --dry-run
+uv run scripts/cleanup_uninteresting.py --config process_videos.config.yaml --dry-run
 ```
 
 Current first-slice capabilities:
@@ -219,29 +211,33 @@ boxes, and the crop images are saved for review.
 
 ## Dependencies
 
-This repository is typically run against a pre-existing local Python
-environment that already has `megadetector`/`speciesnet` and their
-transitive dependencies installed.
-
-Install only the project code (recommended path):
-
-```bash
-python3 -m pip install --user -e . --no-deps
-```
-
-If you need a full local dependency install into an isolated environment,
-use:
+This project is managed with [uv](https://docs.astral.sh/uv/), which creates
+and manages an isolated `.venv` virtual environment from `pyproject.toml` and
+the committed `uv.lock` lockfile. Install [uv](https://docs.astral.sh/uv/getting-started/installation/),
+then run:
 
 ```bash
-python3 -m pip install -r requirements.txt
+uv sync
 ```
 
-Or use the bootstrap script to create/recreate a clean virtual environment and
-install all pinned dependencies in one command:
+to install the pinned runtime dependencies (`megadetector`, `speciesnet`, and
+their transitive dependencies, including `torch`/`torchvision`). Install the
+test/lint tooling too with:
 
 ```bash
-scripts/setup_env.sh --recreate
+uv sync --extra dev
 ```
+
+Run any script or entry point inside the managed environment with
+`uv run <command>` (e.g. `uv run pytest`, `uv run trail-camera-process`)
+instead of activating the virtual environment manually.
+
+Note: `[tool.uv].override-dependencies` in `pyproject.toml` forces a modern
+`protobuf` version. Without it, a transitive `ultralytics-yolov5` constraint
+(`protobuf<=3.20.1`) forces an old `onnx` version that has no prebuilt wheel
+for Python 3.12 on macOS, and its sdist fails to build against modern
+Protobuf/Abseil headers. `protobuf` is not imported directly by this project,
+so overriding it is safe.
 
 ## Outputs
 
