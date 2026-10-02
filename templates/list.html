@@ -138,6 +138,15 @@
         .summary-item strong {
             font-size: 1rem;
         }
+        a.summary-item-link {
+            text-decoration: none;
+            color: var(--ink);
+            cursor: pointer;
+        }
+        a.summary-item-link:hover {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+        }
         .card-grid {
             padding: 18px;
         }
@@ -272,7 +281,14 @@
                             <option value="no" {% if filters.is_favorite == 'no' %}selected{% endif %}>Exclude Favorites</option>
                         </select>
                     </label>
-                    <label>Species<input type="text" name="species" value="{{ filters.species }}" placeholder="dog, bird, squirrel"></label>
+                    <label>Species
+                        <input type="text" name="species" value="{{ filters.species }}" placeholder="dog, bird, squirrel" list="species-options" autocomplete="off">
+                        <datalist id="species-options">
+                            {% for option in species_options %}
+                            <option value="{{ option }}">
+                            {% endfor %}
+                        </datalist>
+                    </label>
                     <label>Min Confidence<input type="number" min="0" max="1" step="0.001" name="min_confidence" value="{{ filters.min_confidence }}"></label>
                     <label>Max Confidence<input type="number" min="0" max="1" step="0.001" name="max_confidence" value="{{ filters.max_confidence }}"></label>
                     <label>Needs Reprocess
@@ -320,7 +336,7 @@
                 <p>Counts use the most likely candidate for every video matching the current filters, not just the videos on this page.</p>
                 <div class="summary-list">
                     {% for item in top_label_counts %}
-                    <span class="summary-item">{{ item.label }} <strong>{{ item.count }}</strong></span>
+                    <a class="summary-item summary-item-link" href="{{ species_filter_url(item.label) }}">{{ item.label }} <strong>{{ item.count }}</strong></a>
                     {% endfor %}
                 </div>
             </section>
