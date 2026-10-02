@@ -465,6 +465,23 @@ def prune_uninteresting_canonical_sources(
             stored_original.unlink()
 
 
+def _delete_input_candidate(candidate: Path) -> bool:
+    """Delete a single input candidate file, logging the outcome.
+
+    Returns:
+        bool: True if the file was deleted, False otherwise.
+    """
+    try:
+        candidate.unlink()
+        logger.info("Deleted processed input file: %s", candidate)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        logger.warning("Failed to delete processed input file: %s", candidate)
+        return False
+
+
 def delete_processed_input_files(
     source_decisions: list[tuple[ProcessingSource, VideoDecision]],
     input_dir: Path,
@@ -516,14 +533,7 @@ def delete_processed_input_files(
         seen.add(resolved_candidate)
 
         if resolved_candidate in processed_paths or discovered_input_files is not None:
-            try:
-                candidate.unlink()
-                deleted_count += 1
-                logger.info("Deleted processed input file: %s", candidate)
-            except FileNotFoundError:
-                continue
-            except OSError:
-                logger.warning("Failed to delete processed input file: %s", candidate)
+            deleted_count += _delete_input_candidate(candidate)
 
     return deleted_count
 

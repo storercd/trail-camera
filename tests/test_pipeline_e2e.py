@@ -14,8 +14,10 @@ from typing import Any
 import pytest
 
 from metadata_store import (
+    ProcessingStateRecord,
     fetch_catalog_snapshot,
     initialize_metadata_store,
+    upsert_processing_state_record,
 )
 from pipeline_models import AppConfig
 from process_videos import merge_species_classification_reports
@@ -152,7 +154,7 @@ class TestNewOnlyMode:
         assert snapshot["videos"][1]["original_filename"] in ("video1.avi", "video2.avi")
 
     def test_should_not_reingest_existing_videos(self, tmp_workspace: dict[str, Any]) -> None:
-        """New-only mode should skip videos already in catalog."""
+        """New-only mode should skip videos already cataloged and fully processed."""
         input_dir = tmp_workspace["input"]
         video = _create_test_video(input_dir, "video.avi", seed=3)
 
@@ -165,6 +167,21 @@ class TestNewOnlyMode:
         assert ingested_count1 == 1
         assert newly_persisted_count1 == 1
 
+        # Record that the video finished processing, as a real run would.
+        upsert_processing_state_record(
+            tmp_workspace["metadata_db"],
+            ProcessingStateRecord(
+                video_id=sources1[0].video_id,
+                pipeline_version="0.1.0",
+                mode="new-only",
+                bucket="interesting",
+                top_confidence=0.9,
+                top_category="1",
+                top_frame=1,
+                status="processed",
+            ),
+        )
+
         # Second ingest of same video
         ingested_count2, newly_persisted_count2, sources2 = ingest_videos_into_catalog(
             videos=[video],
@@ -172,7 +189,7 @@ class TestNewOnlyMode:
             metadata_db_path=tmp_workspace["metadata_db"],
         )
 
-        # Should skip since it's already in catalog
+        # Should skip since it's already in catalog and fully processed
         assert ingested_count2 == 1
         assert newly_persisted_count2 == 0
         assert len(sources2) == 0

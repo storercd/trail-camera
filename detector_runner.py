@@ -40,7 +40,11 @@ logger = logging.getLogger(__name__)
 
 
 def _run_quietly(callback: Any, *args: Any, **kwargs: Any) -> Any:
-    """Execute a callback while swallowing third-party console noise."""
+    """Execute a callback while swallowing third-party console noise.
+
+    Returns:
+        Any: The return value of ``callback``.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
