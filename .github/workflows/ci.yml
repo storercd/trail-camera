@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [development]
+  pull_request:
+    branches: [development]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Lint and test
+    # The committed uv.lock is resolved only for darwin/arm64 (see
+    # `[tool.uv].environments` in pyproject.toml), so CI must run on an
+    # Apple Silicon macOS runner.
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run ruff
+        run: uv run ruff check .
+
+      - name: Run pytest
+        run: uv run pytest

@@ -1252,82 +1252,43 @@ def repair_canonical_sources_from_input(
     return valid_sources, repaired_count
 
 
-def main() -> int:
-    """Run the end-to-end video processing workflow with per-video streaming.
+def _handle_no_processing_sources(args: argparse.Namespace, paths: Any, config: Any) -> int:
+    """Handle the no-videos-selected path: cleanup redundant inputs and purge species rows.
 
     Returns:
-        int: Process exit code.
+        int: Process exit code (always 0).
     """
-    args = parse_args()
-    configure_logging(args.log_level)
-    config = load_config(Path(args.config))
-    paths = build_run_paths(Path(args.config), config)
-    _print_runtime_header(paths, config, args.mode)
-
-    paths.canonical_videos_dir.mkdir(parents=True, exist_ok=True)
-    initialize_metadata_store(paths.metadata_db_path)
-
-    if args.mode == "report-only":
-        purged_species_rows = run_catalog_species_maintenance(
-            metadata_db_path=paths.metadata_db_path,
-            uninteresting_species_labels=config.uninteresting_species_labels,
-        )
-        if purged_species_rows:
-            logger.info("Purged uninteresting species rows: %s", purged_species_rows)
-        _write_optional_reports(paths, config)
-        logger.info("Report generation complete from sqlite catalog and artifact files")
-        return 0
-
-    processing_sources = _load_processing_sources_for_mode(args.mode, paths, config)
-    if not processing_sources:
-        if args.mode == "new-only":
-            discovered_input_files = _find_input_videos_for_processing(paths.input_dir, config.recursive)
-            deleted_input_files = delete_processed_input_files(
-                source_decisions=[],
-                input_dir=paths.input_dir,
-                discovered_input_files=discovered_input_files,
-            )
-            if deleted_input_files:
-                logger.info(
-                    "Deleted %s redundant input file(s) already cataloged and processed",
-                    deleted_input_files,
-                )
-        purged_species_rows = run_catalog_species_maintenance(
-            metadata_db_path=paths.metadata_db_path,
-            uninteresting_species_labels=config.uninteresting_species_labels,
-        )
-        if purged_species_rows:
-            logger.info("Purged uninteresting species rows: %s", purged_species_rows)
-            _write_optional_reports(paths, config)
-        logger.info("No videos selected for processing in mode '%s'. Exiting.", args.mode)
-        return 0
-
-    if args.mode == "reprocess-existing":
-        processing_sources, _ = repair_canonical_sources_from_input(
-            processing_sources=processing_sources,
+    if args.mode == "new-only":
+        discovered_input_files = _find_input_videos_for_processing(paths.input_dir, config.recursive)
+        deleted_input_files = delete_processed_input_files(
+            source_decisions=[],
             input_dir=paths.input_dir,
-            recursive=config.recursive,
-            canonical_videos_dir=paths.canonical_videos_dir,
+            discovered_input_files=discovered_input_files,
         )
-        logger.info("Using %s validated canonical originals for reprocessing", len(processing_sources))
-
-    categories = resolve_interesting_categories(config)
-    effective_move_files = _resolve_effective_move_files(args.mode, config.move_files)
-    preview_output_dir = resolve_preview_output_dir(config.preview_output_dir, paths.output_dir)
-    species_crop_output_dir = resolve_preview_output_dir(config.species_crop_output_dir, paths.output_dir)
-    species_classification_report_path = paths.metadata_dir / "species_classifications.json"
-
-    accumulator = _process_sources_sequential(
-        processing_sources=processing_sources,
-        paths=paths,
-        config=config,
-        categories=categories,
-        effective_move_files=effective_move_files,
-        preview_output_dir=preview_output_dir,
-        species_crop_output_dir=species_crop_output_dir,
-        species_classification_report_path=species_classification_report_path,
+        if deleted_input_files:
+            logger.info(
+                "Deleted %s redundant input file(s) already cataloged and processed",
+                deleted_input_files,
+            )
+    purged_species_rows = run_catalog_species_maintenance(
+        metadata_db_path=paths.metadata_db_path,
+        uninteresting_species_labels=config.uninteresting_species_labels,
     )
+    if purged_species_rows:
+        logger.info("Purged uninteresting species rows: %s", purged_species_rows)
+        _write_optional_reports(paths, config)
+    logger.info("No videos selected for processing in mode '%s'. Exiting.", args.mode)
+    return 0
 
+
+def _finalize_processing_run(
+    args: argparse.Namespace,
+    paths: Any,
+    config: Any,
+    accumulator: Any,
+    species_classification_report_path: Path,
+) -> None:
+    """Merge reports, apply species filters, persist results, and clean up processed inputs."""
     # Merge all per-video MegaDetector results into final report
     ordered_md_temp_reports = [
         (accumulator.md_results_paths_by_index[i], accumulator.sources_by_index[i])
@@ -1446,6 +1407,65 @@ def main() -> int:
     logger.debug("Raw MegaDetector output: %s", paths.md_results_path)
     if config.write_json_exports:
         logger.debug("Summary report: %s", paths.summary_path)
+
+
+def main() -> int:
+    """Run the end-to-end video processing workflow with per-video streaming.
+
+    Returns:
+        int: Process exit code.
+    """
+    args = parse_args()
+    configure_logging(args.log_level)
+    config = load_config(Path(args.config))
+    paths = build_run_paths(Path(args.config), config)
+    _print_runtime_header(paths, config, args.mode)
+
+    paths.canonical_videos_dir.mkdir(parents=True, exist_ok=True)
+    initialize_metadata_store(paths.metadata_db_path)
+
+    if args.mode == "report-only":
+        purged_species_rows = run_catalog_species_maintenance(
+            metadata_db_path=paths.metadata_db_path,
+            uninteresting_species_labels=config.uninteresting_species_labels,
+        )
+        if purged_species_rows:
+            logger.info("Purged uninteresting species rows: %s", purged_species_rows)
+        _write_optional_reports(paths, config)
+        logger.info("Report generation complete from sqlite catalog and artifact files")
+        return 0
+
+    processing_sources = _load_processing_sources_for_mode(args.mode, paths, config)
+    if not processing_sources:
+        return _handle_no_processing_sources(args, paths, config)
+
+    if args.mode == "reprocess-existing":
+        processing_sources, _ = repair_canonical_sources_from_input(
+            processing_sources=processing_sources,
+            input_dir=paths.input_dir,
+            recursive=config.recursive,
+            canonical_videos_dir=paths.canonical_videos_dir,
+        )
+        logger.info("Using %s validated canonical originals for reprocessing", len(processing_sources))
+
+    categories = resolve_interesting_categories(config)
+    effective_move_files = _resolve_effective_move_files(args.mode, config.move_files)
+    preview_output_dir = resolve_preview_output_dir(config.preview_output_dir, paths.output_dir)
+    species_crop_output_dir = resolve_preview_output_dir(config.species_crop_output_dir, paths.output_dir)
+    species_classification_report_path = paths.metadata_dir / "species_classifications.json"
+
+    accumulator = _process_sources_sequential(
+        processing_sources=processing_sources,
+        paths=paths,
+        config=config,
+        categories=categories,
+        effective_move_files=effective_move_files,
+        preview_output_dir=preview_output_dir,
+        species_crop_output_dir=species_crop_output_dir,
+        species_classification_report_path=species_classification_report_path,
+    )
+
+    _finalize_processing_run(args, paths, config, accumulator, species_classification_report_path)
     return 0
 
 

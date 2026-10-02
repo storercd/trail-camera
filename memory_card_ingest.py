@@ -20,7 +20,11 @@ ANSI_RESET = "\033[0m"
 
 
 def _green_log_message(message: str) -> str:
-    """Wrap a log message in ANSI green styling for terminal clarity."""
+    """Wrap a log message in ANSI green styling for terminal clarity.
+
+    Returns:
+        str: The message wrapped in ANSI green color codes.
+    """
     return f"{ANSI_GREEN}{message}{ANSI_RESET}"
 
 
@@ -60,7 +64,11 @@ def _is_hidden_card_path(path: Path, card_root: Path) -> bool:
 
 
 def build_copy_plan(source_files: list[Path], destination_dir: Path) -> list[tuple[Path, Path]]:
-    """Build source/target pairs while avoiding filename collisions."""
+    """Build source/target pairs while avoiding filename collisions.
+
+    Returns:
+        list[tuple[Path, Path]]: Source/target path pairs for each file to copy.
+    """
     copy_plan: list[tuple[Path, Path]] = []
     for source_path in source_files:
         destination = make_unique_destination(destination_dir / source_path.name)
@@ -79,7 +87,12 @@ def copy_files(copy_plan: list[tuple[Path, Path]]) -> None:
 
 
 def verify_copied_files(copy_plan: list[tuple[Path, Path]], *, use_sha256: bool = False) -> None:
-    """Verify copied files by size and optional SHA-256 checksum."""
+    """Verify copied files by size and optional SHA-256 checksum.
+
+    Raises:
+        ValueError: If a copied file is missing or its size/checksum differs
+            from the source file.
+    """
     for source_path, target_path in copy_plan:
         if not target_path.exists():
             raise ValueError(f"Copied file is missing: {target_path}")
@@ -90,7 +103,11 @@ def verify_copied_files(copy_plan: list[tuple[Path, Path]], *, use_sha256: bool 
 
 
 def delete_memory_card_files(source_files: list[Path], *, card_root: Path) -> int:
-    """Delete source files and prune empty directories from the card."""
+    """Delete source files and prune empty directories from the card.
+
+    Returns:
+        int: The number of source files deleted.
+    """
     deleted_files = 0
     for source_path in source_files:
         if source_path.exists():
@@ -111,7 +128,11 @@ def delete_memory_card_files(source_files: list[Path], *, card_root: Path) -> in
 
 
 def eject_memory_card(card_root: Path) -> None:
-    """Eject the mounted memory card with diskutil."""
+    """Eject the mounted memory card with diskutil.
+
+    Raises:
+        FileNotFoundError: If the `diskutil` tool is not found on PATH.
+    """
     diskutil_path = shutil.which("diskutil")
     if diskutil_path is None:
         raise FileNotFoundError("Required tool not found on PATH: diskutil")
@@ -131,7 +152,12 @@ def run_memory_card_ingest(
     use_sha256: bool = False,
     eject_card: bool = True,
 ) -> MemoryCardIngestResult | None:
-    """Copy card media into destination and optionally delete imported source files."""
+    """Copy card media into destination and optionally delete imported source files.
+
+    Returns:
+        MemoryCardIngestResult | None: Summary of the ingest run, or ``None``
+            if no memory card was detected.
+    """
     card_root = find_memory_card_mount(mount_root)
     if card_root is None:
         LOGGER.info("no memory card detected in %s", mount_root)
@@ -178,7 +204,11 @@ def run_memory_card_ingest(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for memory-card ingest."""
+    """Parse command-line arguments for memory-card ingest.
+
+    Returns:
+        argparse.Namespace: The parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Copy media from a mounted memory card into trail-camera input_dir and "
@@ -226,7 +256,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_destination_dir(config_path: Path, destination_override: str) -> Path:
-    """Resolve destination directory from CLI override or pipeline config."""
+    """Resolve destination directory from CLI override or pipeline config.
+
+    Returns:
+        Path: The resolved destination directory.
+    """
     if destination_override.strip():
         return Path(destination_override).expanduser().resolve()
 
