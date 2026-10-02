@@ -656,6 +656,25 @@ def _build_catalog_filters(
     return filters, params
 
 
+def list_distinct_species_labels(db_path: Path) -> list[str]:
+    """Return every distinct species label ever recorded, for filter dropdowns.
+
+    Returns:
+        list[str]: Distinct, non-empty species labels sorted alphabetically.
+    """
+    ensure_favorites_table(db_path)
+    sql = """
+        SELECT DISTINCT top_label AS label
+        FROM species_classifications
+        WHERE top_label IS NOT NULL AND top_label != ''
+        ORDER BY LOWER(top_label) ASC
+    """
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(sql).fetchall()
+    return [row["label"] for row in rows]
+
+
 def list_catalog_top_labels(
     db_path: Path,
     current_pipeline_version: str,

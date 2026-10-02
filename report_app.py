@@ -15,6 +15,7 @@ from metadata_store import (
     get_catalog_video_detail,
     list_catalog_top_labels,
     list_catalog_videos,
+    list_distinct_species_labels,
     set_video_favorite,
 )
 from pipeline_config import DEFAULT_CONFIG_PATH, build_run_paths, load_config
@@ -198,6 +199,8 @@ def _register_list_route(app: Flask) -> None:
             row["is_image_source"] = _is_image_source(row)
         _build_display_names(rows)
 
+        species_options = list_distinct_species_labels(app.config["METADATA_DB_PATH"])
+
         total_pages = max(1, ceil(total_count / page_size)) if total_count else 1
 
         def pagination_url(target_page: int) -> str:
@@ -206,12 +209,19 @@ def _register_list_route(app: Flask) -> None:
             args["page_size"] = str(page_size)
             return url_for("list_videos", **args)
 
+        def species_filter_url(label: str) -> str:
+            args = request.args.to_dict(flat=True)
+            args["species"] = label
+            args["page"] = "1"
+            return url_for("list_videos", **args)
+
         return render_template(
             "list.html",
             videos=rows,
             filters=filters,
             total_count=total_count,
             top_label_counts=top_label_counts,
+            species_options=species_options,
             page=page,
             total_pages=total_pages,
             current_pipeline_version=app.config["CURRENT_PIPELINE_VERSION"],
@@ -225,6 +235,7 @@ def _register_list_route(app: Flask) -> None:
             ],
             page_sizes=[12, 24, 48, 96],
             pagination_url=pagination_url,
+            species_filter_url=species_filter_url,
             current_url=request.full_path,
         )
 
