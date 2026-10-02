@@ -831,11 +831,6 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             videos=discovered_videos,
             canonical_videos_dir=paths.canonical_videos_dir,
             metadata_db_path=paths.metadata_db_path,
-            camera_date_profile=(
-                config.camera_date_profile
-                if config.capture_date_source == "camera_overlay"
-                else None
-            ),
         )
         logger.info(
             "Catalog ingestion complete: media=%s new_canonical_originals=%s new_sources=%s",
@@ -859,11 +854,6 @@ def _load_processing_sources_for_mode(mode: str, paths: Any, config: Any) -> lis
             videos=discovered_videos,
             canonical_videos_dir=paths.canonical_videos_dir,
             metadata_db_path=paths.metadata_db_path,
-            camera_date_profile=(
-                config.camera_date_profile
-                if config.capture_date_source == "camera_overlay"
-                else None
-            ),
         )
         logger.info(
             "Re-ingested input media as new records: media=%s new_canonical_originals=%s new_sources=%s",

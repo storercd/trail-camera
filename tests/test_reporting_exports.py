@@ -35,7 +35,6 @@ speciesnet_geofence: false
 speciesnet_label_in_filename: true
 species_crop_output_dir: preview_species_crops
 species_crop_padding: 0.15
-capture_date_source: filesystem
 excluded_megadetector_categories: ['3']
 uninteresting_species_labels: ['blank']
 generic_species_labels_to_skip: ['bird']
@@ -90,8 +89,6 @@ def test_write_sqlite_snapshot_export_should_write_summary_payload(tmp_path: Pat
         speciesnet_label_in_filename=True,
         species_crop_output_dir="preview_species_crops",
         species_crop_padding=0.15,
-        capture_date_source="filesystem",
-        camera_date_profile=None,
         excluded_megadetector_categories=["3"],
         uninteresting_species_labels=["domestic dog"],
         generic_species_labels_to_skip=["bird"],

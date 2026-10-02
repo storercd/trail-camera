@@ -50,8 +50,6 @@ class AppConfig:
     speciesnet_label_in_filename: bool
     species_crop_output_dir: str
     species_crop_padding: float
-    capture_date_source: str
-    camera_date_profile: dict[str, object] | None
     excluded_megadetector_categories: list[str]
     uninteresting_species_labels: list[str]
     generic_species_labels_to_skip: list[str]

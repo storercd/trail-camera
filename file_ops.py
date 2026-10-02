@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 import shutil
-from collections import Counter
-from datetime import datetime
+import struct
+from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 VIDEO_EXTENSIONS = {
     ".avi",
@@ -111,167 +110,96 @@ def _get_filesystem_capture_date(source: Path) -> str | None:
     return datetime.fromtimestamp(created_timestamp).strftime("%Y-%m-%d")
 
 
-def _parse_profile_date_match(match: re.Match[str], date_order: str) -> str | None:
-    """Parse regex date groups into ISO date according to configured component order.
-
-    Returns:
-        str | None: Parsed ISO date when groups are valid.
-    """
-    try:
-        a, b, c = match.group(1), match.group(2), match.group(3)
-        if date_order == "mdy":
-            month, day, year = int(a), int(b), int(c)
-        elif date_order == "dmy":
-            day, month, year = int(a), int(b), int(c)
-        elif date_order == "ymd":
-            year, month, day = int(a), int(b), int(c)
-        else:
-            return None
-        return datetime(year=year, month=month, day=day).strftime("%Y-%m-%d")
-    except (TypeError, ValueError):
-        return None
+_QUICKTIME_EPOCH = datetime(1904, 1, 1, tzinfo=timezone.utc)
 
 
-def _parse_profile_roi(profile: dict[str, Any]) -> tuple[float, float, float, float] | None:
-    """Parse and validate normalized profile ROI.
-
-    Returns:
-        tuple[float, float, float, float] | None: (x0, y0, x1, y1) normalized ROI.
-    """
-    roi = profile.get("roi")
-    if not isinstance(roi, list) or len(roi) != 4:
-        return None
-    try:
-        x0, y0, x1, y1 = (float(v) for v in roi)
-    except (TypeError, ValueError):
-        return None
-    if not (0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0):
-        return None
-    return x0, y0, x1, y1
-
-
-def _sample_frame_indices(total_frames: int, sample_frames: int) -> list[int]:
-    """Build deterministic sample indices across the clip timeline.
-
-    Returns:
-        list[int]: Frame indices to sample.
-    """
-    if total_frames <= 0:
-        return [0]
-    sample_count = max(1, min(sample_frames, total_frames))
-    step = max(1, total_frames // sample_count)
-    return [min(i * step, total_frames - 1) for i in range(sample_count)]
+def _iter_mp4_boxes(data: bytes, start: int, end: int) -> Iterator[tuple[str, int, int]]:
+    """Yield (box_type, payload_start, payload_end) for top-level boxes in a byte range."""
+    pos = start
+    while pos + 8 <= end:
+        size = struct.unpack(">I", data[pos : pos + 4])[0]
+        box_type = data[pos + 4 : pos + 8].decode("latin1")
+        header_size = 8
+        if size == 1:
+            if pos + 16 > end:
+                return
+            size = struct.unpack(">Q", data[pos + 8 : pos + 16])[0]
+            header_size = 16
+        elif size == 0:
+            size = end - pos
+        if size < header_size or pos + size > end:
+            return
+        yield box_type, pos + header_size, pos + size
+        pos += size
 
 
-def _extract_date_from_crop(
-    gray_image: Any,
-    pattern: re.Pattern[str],
-    date_order: str,
-    ocr_config: str,
-    cv2: Any,
-    pytesseract: Any,
-) -> str | None:
-    """Try OCR transforms on one cropped region and return parsed date.
-
-    Returns:
-        str | None: Extracted ISO date when OCR + regex succeeds.
-    """
-    transforms = (
-        lambda img: img,
-        lambda img: cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
-        lambda img: cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1],
-    )
-    for transform in transforms:
-        processed = transform(gray_image)
-        text = pytesseract.image_to_string(processed, config=ocr_config)
-        match = pattern.search(text)
-        if match is None:
-            continue
-        iso_date = _parse_profile_date_match(match, date_order)
-        if iso_date is not None:
-            return iso_date
+def _find_mp4_box(data: bytes, start: int, end: int, box_type: str) -> tuple[int, int] | None:
+    """Return (payload_start, payload_end) for the first matching top-level box, else None."""
+    for found_type, payload_start, payload_end in _iter_mp4_boxes(data, start, end):
+        if found_type == box_type:
+            return payload_start, payload_end
     return None
 
 
-def _extract_profile_capture_date(source: Path, profile: dict[str, Any]) -> str | None:
-    """Extract capture date from on-frame overlay using profile-guided OCR.
+def _get_video_container_capture_date(source: Path) -> str | None:
+    """Return capture date from an MP4/MOV container's mvhd creation time.
+
+    QuickTime-family containers (.mp4, .mov, .m4v) store a creation timestamp
+    in the moov/mvhd atom as seconds since 1904-01-01 UTC. This is set by the
+    camera at record time and survives copies/moves, unlike filesystem
+    timestamps or filename-based heuristics.
 
     Returns:
-        str | None: Extracted ISO date when OCR succeeds, else None.
+        str | None: Capture date string from container metadata, else None.
     """
     try:
-        import cv2
-        import pytesseract
-    except ImportError:
+        with source.open("rb") as handle:
+            data = handle.read()
+    except OSError:
         return None
 
-    roi = _parse_profile_roi(profile)
-    date_regex = str(profile.get("date_regex", ""))
-    date_order = str(profile.get("date_order", "mdy")).lower()
-    sample_frames = int(profile.get("sample_frames", 5))
-    psm = int(profile.get("ocr_psm", 6))
-    if roi is None or not date_regex:
+    moov = _find_mp4_box(data, 0, len(data), "moov")
+    if moov is None:
         return None
-    x0, y0, x1, y1 = roi
-
-    cap = cv2.VideoCapture(str(source))
-    if not cap.isOpened():
+    mvhd = _find_mp4_box(data, moov[0], moov[1], "mvhd")
+    if mvhd is None:
         return None
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_indices = _sample_frame_indices(total_frames, sample_frames)
-
-    pattern = re.compile(date_regex)
-    candidates: list[str] = []
-    cfg = (
-        f"--psm {psm} "
-        "-c tessedit_char_whitelist=0123456789-/:. "
-        "-c preserve_interword_spaces=1"
-    )
-    for frame_idx in frame_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            continue
-
-        h, w = frame.shape[:2]
-        x_start, x_end = int(w * x0), int(w * x1)
-        y_start, y_end = int(h * y0), int(h * y1)
-        crop = frame[y_start:y_end, x_start:x_end]
-        if crop.size == 0:
-            continue
-
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        iso_date = _extract_date_from_crop(
-            gray_image=gray,
-            pattern=pattern,
-            date_order=date_order,
-            ocr_config=cfg,
-            cv2=cv2,
-            pytesseract=pytesseract,
-        )
-        if iso_date is not None:
-            candidates.append(iso_date)
-
-    cap.release()
-    if not candidates:
+    payload_start, payload_end = mvhd
+    if payload_end - payload_start < 8:
+        return None
+    version = data[payload_start]
+    try:
+        if version == 1:
+            if payload_end - payload_start < 12:
+                return None
+            creation_seconds = struct.unpack(">Q", data[payload_start + 4 : payload_start + 12])[0]
+        else:
+            creation_seconds = struct.unpack(">I", data[payload_start + 4 : payload_start + 8])[0]
+    except struct.error:
         return None
 
-    return Counter(candidates).most_common(1)[0][0]
+    if creation_seconds <= 0:
+        return None
+    try:
+        capture_dt = _QUICKTIME_EPOCH + timedelta(seconds=creation_seconds)
+    except OverflowError:
+        return None
+    return capture_dt.strftime("%Y-%m-%d")
 
 
-def get_capture_date(source: Path, camera_date_profile: dict[str, Any] | None = None) -> str | None:
+def get_capture_date(source: Path) -> str | None:
     """Return source capture date in YYYY-MM-DD format when available.
 
     Args:
         source: Source file path.
-        camera_date_profile: Optional camera overlay OCR profile.
 
     Returns:
-        str | None: Capture date string from profile OCR or filesystem fallback.
+        str | None: Capture date from video container metadata when available,
+            else filesystem creation/modify date.
     """
-    if camera_date_profile:
-        extracted = _extract_profile_capture_date(source, camera_date_profile)
+    if source.suffix.lower() in VIDEO_EXTENSIONS:
+        extracted = _get_video_container_capture_date(source)
         if extracted is not None:
             return extracted
     return _get_filesystem_capture_date(source)
