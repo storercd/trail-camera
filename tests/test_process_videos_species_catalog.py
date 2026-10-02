@@ -361,7 +361,6 @@ def test_main_should_purge_species_rows_when_no_videos_selected(
                 "speciesnet_label_in_filename: true",
                 "species_crop_output_dir: preview_species_crops",
                 "species_crop_padding: 0.15",
-                "capture_date_source: filesystem",
             ]
         ),
         encoding="utf-8",

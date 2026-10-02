@@ -27,21 +27,6 @@ def _parse_string_list(raw_config: dict[str, object], key: str, default: list[st
     return [str(value).strip() for value in values_raw if str(value).strip()]
 
 
-def _parse_camera_date_profile(raw_config: dict[str, object]) -> dict[str, object] | None:
-    """Parse optional camera date profile mapping.
-
-    Returns:
-        dict[str, object] | None: Camera date profile mapping when configured.
-
-    Raises:
-        SystemExit: If a non-mapping value is provided.
-    """
-    raw_camera_date_profile = raw_config.get("camera_date_profile")
-    if raw_camera_date_profile is not None and not isinstance(raw_camera_date_profile, dict):
-        raise SystemExit("camera_date_profile must be a YAML mapping when provided")
-    return raw_camera_date_profile
-
-
 def _build_app_config(raw_config: dict[str, object], config_path: Path) -> AppConfig:
     """Build AppConfig from raw YAML values.
 
@@ -79,8 +64,6 @@ def _build_app_config(raw_config: dict[str, object], config_path: Path) -> AppCo
             speciesnet_label_in_filename=bool(raw_config.get("speciesnet_label_in_filename", True)),
             species_crop_output_dir=str(raw_config.get("species_crop_output_dir", "preview_species_crops")),
             species_crop_padding=float(raw_config.get("species_crop_padding", 0.15)),
-            capture_date_source=str(raw_config.get("capture_date_source", "filesystem")).strip().lower(),
-            camera_date_profile=_parse_camera_date_profile(raw_config),
             excluded_megadetector_categories=_parse_string_list(
                 raw_config,
                 key="excluded_megadetector_categories",
@@ -118,8 +101,6 @@ def _validate_config(config: AppConfig) -> None:
         raise SystemExit("species_crop_padding must be between 0.0 and 1.0")
     if not config.pipeline_version:
         raise SystemExit("pipeline_version must be a non-empty string")
-    if config.capture_date_source not in {"filesystem", "camera_overlay"}:
-        raise SystemExit("capture_date_source must be either 'filesystem' or 'camera_overlay'")
 
 
 def load_config(config_path: Path) -> AppConfig:

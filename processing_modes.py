@@ -82,7 +82,6 @@ def ingest_videos_into_catalog(
     videos: list[Path],
     canonical_videos_dir: Path,
     metadata_db_path: Path,
-    camera_date_profile: dict[str, object] | None = None,
 ) -> tuple[int, int, list[ProcessingSource]]:
     """Compute IDs, persist canonical originals, and upsert catalog rows.
 
@@ -90,7 +89,6 @@ def ingest_videos_into_catalog(
         videos: Source videos discovered for this run.
         canonical_videos_dir: Root directory for canonical per-video storage.
         metadata_db_path: SQLite metadata catalog path.
-        camera_date_profile: Optional camera overlay OCR profile.
 
     Returns:
         tuple[int, int, list[ProcessingSource]]: Ingested count, newly persisted originals,
@@ -143,7 +141,7 @@ def ingest_videos_into_catalog(
             record=VideoCatalogRecord(
                 video_id=video_id,
                 original_filename=source.name,
-                capture_date=get_capture_date(source, camera_date_profile=camera_date_profile),
+                capture_date=get_capture_date(source),
                 filesize_bytes=int(stat.st_size),
                 source_ext=source.suffix.lower(),
                 stored_original_path=str(stored_original_path),
