@@ -166,12 +166,17 @@ def run_memory_card_ingest(
     source_files = iter_memory_card_media_files(card_root)
     if not source_files:
         LOGGER.info("no importable media files found on memory card %s", card_root)
+        ejected = False
+        if eject_card:
+            eject_memory_card(card_root)
+            LOGGER.info(_green_log_message("ejected memory card at %s"), card_root)
+            ejected = True
         return MemoryCardIngestResult(
             card_root=card_root,
             copied_files=(),
             imported_files=0,
             deleted_files=0,
-            ejected=False,
+            ejected=ejected,
         )
 
     destination_dir.mkdir(parents=True, exist_ok=True)

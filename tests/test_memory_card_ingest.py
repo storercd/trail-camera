@@ -20,6 +20,32 @@ def test_run_memory_card_ingest_should_return_none_without_card(tmp_path: Path) 
     assert result is None
 
 
+def test_run_memory_card_ingest_should_eject_card_with_no_importable_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eject the card even when it has no importable media files."""
+    mount_root = tmp_path / "Volumes"
+    card_root = mount_root / "SDCARD"
+    (card_root / "DCIM").mkdir(parents=True)
+    eject_calls: list[Path] = []
+
+    def fake_eject(card_root: Path) -> None:
+        eject_calls.append(card_root)
+
+    monkeypatch.setattr(memory_card_ingest, "eject_memory_card", fake_eject)
+
+    result = memory_card_ingest.run_memory_card_ingest(
+        destination_dir=tmp_path / "input",
+        mount_root=mount_root,
+    )
+
+    assert result is not None
+    assert result.imported_files == 0
+    assert result.ejected is True
+    assert eject_calls == [card_root]
+
+
 def test_run_memory_card_ingest_should_copy_and_delete_sources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
