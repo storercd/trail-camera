@@ -11,6 +11,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "Flask==3.1.1",
     "PyYAML==6.0.2",
+    "PySide6-Essentials>=6.8",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
     "kagglehub==1.0.1",
     "megadetector==10.0.20",
     "numpy<2.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
@@ -33,9 +35,11 @@ dev = [
 trail-camera-process = "process_videos:main"
 trail-camera-report = "report_app:main"
 trail-camera-ingest-card = "memory_card_ingest:main"
+trail-camera-dashboard = "dashboard:main"
 
 [tool.setuptools]
 py-modules = [
+    "dashboard",
     "classification",
     "detector_runner",
     "file_ops",

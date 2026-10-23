@@ -141,6 +141,20 @@ when their top species label matches `uninteresting_species_labels`.
 Matching species rows are then purged from SQLite after sync, except for videos marked as favorites.
 When a SpeciesNet result is too generic (for example `bird`), the pipeline can skip that label and promote the next most likely specific candidate using `generic_species_labels_to_skip`.
 
+## Process Dashboard
+
+A native window with a Run/Stop button for each command-line process (card
+ingest, processing modes, cleanup, reporting app):
+
+```bash
+uv run trail-camera-dashboard
+```
+
+Long processes show a progress bar in the window (parsed from `[i/N]` and
+`copied i/N files` log lines; indeterminate until a count is known). On macOS
+the same progress is shown on the Dock tile (a progress bar over the icon) so it can be tracked externally. Edit `PROCESSES` in `dashboard.py` to
+add or change commands.
+
 ## Local Reporting App
 
 Run the local SQLite-backed reporting app:
