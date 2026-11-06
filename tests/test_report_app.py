@@ -126,7 +126,7 @@ def test_report_app_should_render_filtered_list_and_detail(tmp_path: Path) -> No
     app = create_app(_write_config(tmp_path, db_path))
     client = app.test_client()
 
-    list_response = client.get("/?species=dog&needs_reprocess=yes&sort_by=confidence&sort_dir=desc")
+    list_response = client.get("/?date_from=&date_to=&species=dog&needs_reprocess=yes&sort_by=confidence&sort_dir=desc")
     assert list_response.status_code == 200
     list_body = list_response.get_data(as_text=True)
     assert "dog" in list_body
@@ -163,13 +163,13 @@ def test_report_app_should_default_to_interesting_bucket(tmp_path: Path) -> None
     app = create_app(_write_config(tmp_path, db_path))
     client = app.test_client()
 
-    default_response = client.get("/")
+    default_response = client.get("/?date_from=&date_to=")
     assert default_response.status_code == 200
     default_body = default_response.get_data(as_text=True)
     assert "ccc33333" in default_body
     assert "ddd44444" not in default_body
 
-    all_response = client.get("/?bucket=")
+    all_response = client.get("/?date_from=&date_to=&bucket=")
     assert all_response.status_code == 200
     all_body = all_response.get_data(as_text=True)
     assert "ccc33333" in all_body
@@ -192,7 +192,7 @@ def test_report_app_should_toggle_favorite_and_filter_results(tmp_path: Path) ->
     )
     assert favorite_response.status_code == 302
 
-    favorites_only_response = client.get("/?is_favorite=yes")
+    favorites_only_response = client.get("/?date_from=&date_to=&is_favorite=yes")
     assert favorites_only_response.status_code == 200
     favorites_only_body = favorites_only_response.get_data(as_text=True)
     assert "eee55555" in favorites_only_body
@@ -210,7 +210,7 @@ def test_report_app_should_toggle_favorite_and_filter_results(tmp_path: Path) ->
     )
     assert unfavorite_response.status_code == 302
 
-    favorites_after_clear_response = client.get("/?is_favorite=yes")
+    favorites_after_clear_response = client.get("/?date_from=&date_to=&is_favorite=yes")
     assert favorites_after_clear_response.status_code == 200
     assert "eee55555" not in favorites_after_clear_response.get_data(as_text=True)
 
@@ -228,7 +228,7 @@ def test_report_app_should_support_legacy_catalog_without_favorites_table(tmp_pa
     app = create_app(_write_config(tmp_path, db_path))
     client = app.test_client()
 
-    response = client.get("/")
+    response = client.get("/?date_from=&date_to=")
     assert response.status_code == 200
     assert "ggg77777" in response.get_data(as_text=True)
 
@@ -339,3 +339,16 @@ def test_report_app_should_render_all_candidate_counts_without_top_limit(tmp_pat
         assert response.status_code == 200
         body = response.get_data(as_text=True)
         assert body.index("steller&#39;s jay (0.326)") < body.index("bird (0.380)")
+
+
+def test_report_app_should_default_to_last_eight_days(tmp_path) -> None:
+    from datetime import date, timedelta
+
+    db_path = tmp_path / "catalog.sqlite3"
+    initialize_metadata_store(db_path)
+    app = create_app(_write_config(tmp_path, db_path))
+    response = app.test_client().get("/")
+    html = response.get_data(as_text=True)
+    today = date.today()
+    assert f'value="{(today - timedelta(days=7)).isoformat()}"' in html
+    assert f'value="{today.isoformat()}"' in html
