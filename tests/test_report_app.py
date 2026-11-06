@@ -341,7 +341,8 @@ def test_report_app_should_render_all_candidate_counts_without_top_limit(tmp_pat
         assert body.index("steller&#39;s jay (0.326)") < body.index("bird (0.380)")
 
 
-def test_report_app_should_default_to_last_eight_days(tmp_path) -> None:
+def test_report_app_should_default_to_last_eight_days(tmp_path: Path) -> None:
+    """List view should prefill an 8-day date range when no date params are given."""
     from datetime import date, timedelta
 
     db_path = tmp_path / "catalog.sqlite3"

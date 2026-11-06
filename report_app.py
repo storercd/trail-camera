@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
 import json
 import mimetypes
+from datetime import date, timedelta
 from math import ceil
 from pathlib import Path
 from typing import Any
