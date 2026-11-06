@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+from datetime import date, timedelta
 from math import ceil
 from pathlib import Path
 from typing import Any
@@ -149,9 +150,15 @@ def _register_list_route(app: Flask) -> None:
 
     @app.get("/")
     def list_videos() -> str:
+        # Default to the last 8 days only when the date params are absent,
+        # so submitting blank dates still means "no date filter".
+        has_date_args = "date_from" in request.args or "date_to" in request.args
+        today = date.today()
+        default_date_from = "" if has_date_args else (today - timedelta(days=7)).isoformat()
+        default_date_to = "" if has_date_args else today.isoformat()
         filters = {
-            "date_from": request.args.get("date_from", ""),
-            "date_to": request.args.get("date_to", ""),
+            "date_from": request.args.get("date_from", default_date_from),
+            "date_to": request.args.get("date_to", default_date_to),
             "bucket": request.args.get("bucket", "interesting"),
             "is_favorite": request.args.get("is_favorite", ""),
             "species": request.args.get("species", ""),
